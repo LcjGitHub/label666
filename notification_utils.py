@@ -13,6 +13,8 @@ from data_utils import generate_mock_feedback_data
 
 NOTIFICATIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notifications.json")
 NOTIFICATION_RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notification_rules.json")
+EMAIL_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "email_config.json")
+DISPLAY_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "display_config.json")
 
 
 DEFAULT_ALERT_RULES = {
@@ -53,6 +55,23 @@ DEFAULT_ALERT_RULES = {
 }
 
 
+DEFAULT_EMAIL_CONFIG = {
+    "enabled": False,
+    "smtp_server": "smtp.example.com",
+    "smtp_port": 587,
+    "smtp_user": "noreply@example.com",
+    "smtp_password": "",
+    "sender_name": "反馈分析系统",
+    "default_recipients": ["admin@example.com"]
+}
+
+
+DEFAULT_DISPLAY_CONFIG = {
+    "show_sidebar_notification": True,
+    "show_top_badge": True
+}
+
+
 NOTIFICATION_CHANNELS = {
     "in_app": {
         "name": "站内消息",
@@ -76,6 +95,10 @@ def init_notification_system():
     if "notifications_initialized" not in st.session_state:
         load_notification_rules()
         load_notifications()
+        load_email_config()
+        load_display_config()
+        if "show_notification_popup" not in st.session_state:
+            st.session_state.show_notification_popup = False
         st.session_state.notifications_initialized = True
 
 
@@ -97,6 +120,46 @@ def load_notification_rules():
 def save_notification_rules(rules):
     with open(NOTIFICATION_RULES_FILE, "w", encoding="utf-8") as f:
         json.dump(rules, f, ensure_ascii=False, indent=2)
+
+
+def load_email_config():
+    if not os.path.exists(EMAIL_CONFIG_FILE):
+        save_email_config(DEFAULT_EMAIL_CONFIG)
+        return DEFAULT_EMAIL_CONFIG.copy()
+    try:
+        with open(EMAIL_CONFIG_FILE, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        for key, default in DEFAULT_EMAIL_CONFIG.items():
+            if key not in config:
+                config[key] = default
+        return config
+    except (json.JSONDecodeError, IOError):
+        return DEFAULT_EMAIL_CONFIG.copy()
+
+
+def save_email_config(config):
+    with open(EMAIL_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+
+
+def load_display_config():
+    if not os.path.exists(DISPLAY_CONFIG_FILE):
+        save_display_config(DEFAULT_DISPLAY_CONFIG)
+        return DEFAULT_DISPLAY_CONFIG.copy()
+    try:
+        with open(DISPLAY_CONFIG_FILE, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        for key, default in DEFAULT_DISPLAY_CONFIG.items():
+            if key not in config:
+                config[key] = default
+        return config
+    except (json.JSONDecodeError, IOError):
+        return DEFAULT_DISPLAY_CONFIG.copy()
+
+
+def save_display_config(config):
+    with open(DISPLAY_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
 
 
 def load_notifications():
@@ -132,7 +195,8 @@ def create_notification(rule_id, rule_name, severity, message, details=None, cha
         notifications = notifications[:500]
     save_notifications(notifications)
     
-    if "email" in notification["channels"]:
+    email_config = load_email_config()
+    if "email" in notification["channels"] and email_config.get("enabled", False):
         send_email_notification(notification)
     
     return notification
@@ -212,7 +276,7 @@ def check_urgent_bug_alert(rule):
     feedback_df = generate_mock_feedback_data()
     feedback_df["日期"] = pd.to_datetime(feedback_df["日期"])
     
-    cutoff_time = datetime.now() - timedelta(hours=1)
+    cutoff_time = datetime.now() - timedelta(hours=48)
     recent_feedback = feedback_df[
         (feedback_df["日期"] >= cutoff_time) & 
         (feedback_df["反馈类型"] == "Bug 报告")
@@ -227,16 +291,6 @@ def check_urgent_bug_alert(rule):
                 "content": row["反馈内容"],
                 "date": row["日期"].strftime("%Y-%m-%d %H:%M:%S")
             })
-    
-    last_check = st.session_state.get("last_urgent_bug_check", None)
-    if last_check:
-        last_check_dt = pd.to_datetime(last_check)
-        urgent_bugs = [
-            b for b in urgent_bugs 
-            if pd.to_datetime(b["date"]) > last_check_dt
-        ]
-    
-    st.session_state.last_urgent_bug_check = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     if urgent_bugs:
         return {
@@ -331,7 +385,6 @@ def run_monitoring_checks():
         if checker:
             result = checker(rule)
             if result and result.get("triggered"):
-                dedup_key = f"{rule_id}_{result['message']}"
                 last_notifs = get_notifications(limit=10)
                 is_duplicate = any(
                     n.get("rule_id") == rule_id and 
@@ -356,26 +409,22 @@ def run_monitoring_checks():
 
 
 def get_email_config():
-    return st.secrets.get("email", {
-        "smtp_server": "smtp.example.com",
-        "smtp_port": 587,
-        "smtp_user": "noreply@example.com",
-        "smtp_password": "",
-        "sender_name": "反馈分析系统",
-        "default_recipients": ["admin@example.com"]
-    })
+    return load_email_config()
 
 
 def send_email_notification(notification):
     try:
-        config = get_email_config()
+        config = load_email_config()
         
-        if not config.get("smtp_password"):
+        if not config.get("enabled", False) or not config.get("smtp_password"):
             return False
         
         msg = MIMEMultipart()
         msg["From"] = Header(f"{config['sender_name']} <{config['smtp_user']}>", "utf-8")
-        msg["To"] = ", ".join(config["default_recipients"])
+        recipients = config.get("default_recipients", [])
+        if isinstance(recipients, str):
+            recipients = [r.strip() for r in recipients.split("\n") if r.strip()]
+        msg["To"] = ", ".join(recipients)
         
         severity_info = SEVERITY_LEVELS.get(notification["severity"], SEVERITY_LEVELS["info"])
         subject = f"{severity_info['icon']} [{severity_info['name']}] {notification['rule_name']}"
@@ -397,7 +446,7 @@ def send_email_notification(notification):
         server = smtplib.SMTP(config["smtp_server"], config["smtp_port"])
         server.starttls()
         server.login(config["smtp_user"], config["smtp_password"])
-        server.sendmail(config["smtp_user"], config["default_recipients"], msg.as_string())
+        server.sendmail(config["smtp_user"], recipients, msg.as_string())
         server.quit()
         
         return True
@@ -407,92 +456,85 @@ def send_email_notification(notification):
 
 
 def render_notification_icon():
+    display_config = load_display_config()
+    if not display_config.get("show_top_badge", True):
+        return 0
+    
     unread_count = get_unread_count()
+    
+    badge_html = f'<span style="position:absolute;top:-6px;right:-6px;background:#ef4444;color:white;border-radius:9999px;font-size:10px;font-weight:bold;padding:1px 6px;min-width:16px;text-align:center;">{unread_count}</span>' if unread_count > 0 else ''
     
     icon_html = f"""
     <style>
-    .notification-icon-container {{
+    .top-notification-area {{
         position: fixed;
-        top: 0.75rem;
-        right: 4rem;
-        z-index: 999;
-        display: flex;
-        align-items: center;
-    }}
-    .notification-bell {{
-        font-size: 1.5rem;
-        cursor: pointer;
-        padding: 0.25rem 0.5rem;
-        border-radius: 0.5rem;
-        transition: all 0.2s;
-    }}
-    .notification-bell:hover {{
-        background-color: rgba(128, 128, 128, 0.1);
-    }}
-    .notification-badge {{
-        position: absolute;
-        top: -0.25rem;
-        right: -0.25rem;
-        background-color: #ef4444;
-        color: white;
-        border-radius: 9999px;
-        font-size: 0.7rem;
-        font-weight: bold;
-        padding: 0.1rem 0.4rem;
-        min-width: 1.2rem;
-        text-align: center;
+        top: 0.5rem;
+        right: 4.5rem;
+        z-index: 99999;
     }}
     </style>
-    <div class="notification-icon-container">
-        <div class="notification-bell">🔔</div>
-        {f'<div class="notification-badge">{unread_count}</div>' if unread_count > 0 else ''}
-    </div>
+    <div class="top-notification-area">
     """
     st.markdown(icon_html, unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([1, 6])
+    with col1:
+        bell_label = f"🔔 {unread_count}" if unread_count > 0 else "🔔"
+        if st.button(bell_label, key="toggle_notification_popup", help="查看通知"):
+            st.session_state.show_notification_popup = not st.session_state.show_notification_popup
+            st.rerun()
+    with col2:
+        pass
+    
+    st.markdown("</div>", unsafe_allow_html=True)
     
     return unread_count
 
 
 def render_notification_popup():
-    if "show_notification_popup" not in st.session_state:
-        st.session_state.show_notification_popup = False
+    if not st.session_state.get("show_notification_popup", False):
+        return
     
-    if st.session_state.show_notification_popup:
-        unread = get_notifications(limit=10, unread_only=True)
-        all_notifs = get_notifications(limit=10)
+    unread = get_notifications(limit=10, unread_only=True)
+    all_notifs = get_notifications(limit=10)
+    
+    with st.container():
+        st.markdown("---")
+        st.markdown("### 🔔 通知中心")
         
-        with st.sidebar:
-            st.markdown("---")
-            st.markdown("### 🔔 通知中心")
+        if not all_notifs:
+            st.info("暂无通知")
+        else:
+            tab_unread, tab_all = st.tabs([f"未读 ({len(unread)})", "全部"])
             
-            if not all_notifs:
-                st.info("暂无通知")
-            else:
-                tab_unread, tab_all = st.tabs([f"未读 ({len(unread)})", "全部"])
-                
-                with tab_unread:
-                    if not unread:
-                        st.info("没有未读通知")
-                    else:
-                        for notif in unread:
-                            _render_single_notification(notif)
-                
-                with tab_all:
-                    for notif in all_notifs:
-                        _render_single_notification(notif)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("✓ 全部已读", use_container_width=True, key="mark_all_read"):
-                        mark_all_as_read()
-                        st.rerun()
-                with col2:
-                    if st.button("🗑️ 清空全部", use_container_width=True, key="clear_all_notifs"):
-                        clear_all_notifications()
-                        st.rerun()
+            with tab_unread:
+                if not unread:
+                    st.info("没有未读通知")
+                else:
+                    for notif in unread:
+                        _render_single_notification(notif, prefix="popup")
+            
+            with tab_all:
+                for notif in all_notifs:
+                    _render_single_notification(notif, prefix="popup")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✓ 全部已读", use_container_width=True, key="popup_mark_all_read"):
+                    mark_all_as_read()
+                    st.rerun()
+            with col2:
+                if st.button("🗑️ 清空全部", use_container_width=True, key="popup_clear_all"):
+                    clear_all_notifications()
+                    st.rerun()
+        
+        st.markdown("---")
+        if st.button("关闭通知面板", use_container_width=True, key="close_notification_popup"):
+            st.session_state.show_notification_popup = False
+            st.rerun()
 
 
-def _render_single_notification(notification):
+def _render_single_notification(notification, prefix=""):
     severity = notification.get("severity", "info")
     sev_info = SEVERITY_LEVELS.get(severity, SEVERITY_LEVELS["info"])
     is_read = notification.get("read", False)
@@ -531,11 +573,11 @@ def _render_single_notification(notification):
         col_read, col_delete = st.columns([1, 1])
         with col_read:
             if not is_read:
-                if st.button("✓ 已读", key=f"read_{notification['id']}", use_container_width=True):
+                if st.button("✓ 已读", key=f"{prefix}_read_{notification['id']}", use_container_width=True):
                     mark_as_read(notification["id"])
                     st.rerun()
         with col_delete:
-            if st.button("🗑️ 删除", key=f"del_{notification['id']}", use_container_width=True):
+            if st.button("🗑️ 删除", key=f"{prefix}_del_{notification['id']}", use_container_width=True):
                 delete_notification(notification["id"])
                 st.rerun()
         
@@ -590,4 +632,4 @@ def render_notification_history():
     filtered = [n for n in notifications if n.get("severity", "info") in severity_filter]
     
     for notif in filtered:
-        _render_single_notification(notif)
+        _render_single_notification(notif, prefix="history")

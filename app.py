@@ -34,8 +34,10 @@ from report_utils import (
 from notification_utils import (
     init_notification_system,
     render_notification_icon,
+    render_notification_popup,
     run_monitoring_checks,
-    SEVERITY_LEVELS
+    SEVERITY_LEVELS,
+    load_display_config
 )
 
 st.set_page_config(
@@ -52,6 +54,7 @@ if not is_logged_in():
     st.stop()
 
 render_notification_icon()
+render_notification_popup()
 
 new_notifs = run_monitoring_checks()
 if new_notifs:
@@ -66,7 +69,9 @@ feedback_types, counts, daily_df, satisfaction, satisfaction_counts = generate_f
 
 with st.sidebar:
     render_user_info_in_sidebar()
-    render_sidebar_notification_center()
+    display_config = load_display_config()
+    if display_config.get("show_sidebar_notification", True):
+        render_sidebar_notification_center()
     filters = render_sidebar(current_page="feedback")
 
 if filters.get("date_range") and len(filters["date_range"]) == 2:

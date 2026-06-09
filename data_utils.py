@@ -4,6 +4,7 @@ import jieba
 import uuid
 from wordcloud import WordCloud
 from collections import Counter
+from datetime import datetime, timedelta
 
 POSITIVE_WORDS = [
     "太棒了", "非常好", "非常满意", "真的棒", "真的好", "很满意", "很喜欢",
@@ -120,7 +121,9 @@ def generate_mock_feedback_data():
         "功能建议", "界面优化", "性能问题", "Bug 报告", "使用咨询", "其他"
     ]
     
-    dates = pd.date_range(start="2024-01-01", periods=len(feedback_texts), freq="18H")
+    now = datetime.now()
+    start_date = now - timedelta(hours=18 * (len(feedback_texts) - 1))
+    dates = pd.date_range(start=start_date, periods=len(feedback_texts), freq="18h")
     sentiments = []
     scores = []
     types = []
@@ -159,7 +162,9 @@ def generate_feedback_summary_data():
     
     counts = [45, 30, 25, 60, 35, 15]
     
-    dates = pd.date_range(start="2024-01-01", periods=30, freq="D")
+    now = datetime.now()
+    start_date = now - timedelta(days=29)
+    dates = pd.date_range(start=start_date, periods=30, freq="D")
     daily_feedback = np.random.randint(5, 25, size=30)
     
     satisfaction = ["非常满意", "满意", "一般", "不满意", "非常不满意"]

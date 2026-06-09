@@ -1,0 +1,11 @@
+{
+  "enabled": false,
+  "smtp_server": "smtp.example.com",
+  "smtp_port": 587,
+  "smtp_user": "noreply@example.com",
+  "smtp_password": "",
+  "sender_name": "反馈分析系统",
+  "default_recipients": [
+    "admin@example.com"
+  ]
+}

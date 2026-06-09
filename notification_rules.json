@@ -1,0 +1,57 @@
+{
+  "feedback_volume": {
+    "enabled": true,
+    "name": "反馈数量预警",
+    "description": "当指定时间窗口内新增反馈数量超过阈值时触发预警",
+    "threshold": 20,
+    "time_window_hours": 24,
+    "severity": "warning",
+    "notify_channels": [
+      "in_app"
+    ]
+  },
+  "urgent_bug": {
+    "enabled": true,
+    "name": "紧急Bug报告预警",
+    "description": "当检测到包含紧急关键词的Bug报告时立即触发预警",
+    "urgent_keywords": [
+      "崩溃",
+      "闪退",
+      "黑屏",
+      "无法登录",
+      "数据丢失",
+      "宕机",
+      "严重",
+      "紧急",
+      "无法使用",
+      "error",
+      "bug"
+    ],
+    "severity": "critical",
+    "notify_channels": [
+      "in_app",
+      "email"
+    ]
+  },
+  "negative_sentiment": {
+    "enabled": false,
+    "name": "负面情感激增预警",
+    "description": "当负面情感反馈占比超过阈值时触发预警",
+    "threshold_percent": 40,
+    "time_window_hours": 24,
+    "severity": "warning",
+    "notify_channels": [
+      "in_app"
+    ]
+  },
+  "pending_backlog": {
+    "enabled": false,
+    "name": "待处理积压预警",
+    "description": "当待处理反馈数量超过阈值时触发预警",
+    "threshold": 50,
+    "severity": "info",
+    "notify_channels": [
+      "in_app"
+    ]
+  }
+}
