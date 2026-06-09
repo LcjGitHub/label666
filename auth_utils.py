@@ -6,6 +6,7 @@ import pandas as pd
 from datetime import datetime
 
 USERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "users.json")
+LOGIN_LOGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "login_logs.json")
 
 
 def hash_password(password):
@@ -31,6 +32,62 @@ def load_users_data():
 def save_users_data(data):
     with open(USERS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def load_login_logs():
+    if not os.path.exists(LOGIN_LOGS_FILE):
+        return []
+    try:
+        with open(LOGIN_LOGS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return []
+
+
+def save_login_logs(logs):
+    with open(LOGIN_LOGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(logs, f, ensure_ascii=False, indent=2)
+
+
+def add_login_log(username, ip_address, success, message=""):
+    logs = load_login_logs()
+    log_entry = {
+        "id": f"LOG-{datetime.now().strftime('%Y%m%d%H%M%S%f')[:-3]}",
+        "username": username,
+        "login_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "ip_address": ip_address,
+        "success": success,
+        "message": message
+    }
+    logs.insert(0, log_entry)
+    save_login_logs(logs)
+    return log_entry
+
+
+def get_login_logs_by_username(username, limit=None):
+    logs = load_login_logs()
+    user_logs = [log for log in logs if log["username"] == username]
+    if limit:
+        return user_logs[:limit]
+    return user_logs
+
+
+def get_client_ip():
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        ctx = get_script_run_ctx()
+        if ctx and hasattr(ctx, 'session'):
+            session = ctx.session
+            if hasattr(session, '_request'):
+                request = session._request
+                if hasattr(request, 'headers'):
+                    x_forwarded_for = request.headers.get('X-Forwarded-For')
+                    if x_forwarded_for:
+                        return x_forwarded_for.split(',')[0].strip()
+                    return request.headers.get('X-Real-IP', '127.0.0.1')
+    except Exception:
+        pass
+    return "127.0.0.1"
 
 
 def get_roles():
@@ -121,6 +178,7 @@ def require_permission(permission):
 
 def login(username, password):
     user = authenticate(username, password)
+    ip_address = get_client_ip()
     if user:
         st.session_state.user = {
             "username": user["username"],
@@ -129,7 +187,9 @@ def login(username, password):
             "role": user["role"]
         }
         update_last_login(username)
+        add_login_log(username, ip_address, True, "登录成功")
         return True
+    add_login_log(username, ip_address, False, "用户名或密码错误")
     return False
 
 
@@ -288,7 +348,7 @@ def render_user_management_page():
         st.markdown("---")
         st.subheader("用户操作")
 
-        col_edit, col_delete = st.columns(2)
+        col_edit, col_delete, col_logs = st.columns(3)
         with col_edit:
             edit_username = st.selectbox(
                 "选择要编辑的用户",
@@ -339,6 +399,54 @@ def render_user_management_page():
                         st.rerun()
                     else:
                         st.error(msg)
+
+        with col_logs:
+            log_username = st.selectbox(
+                "选择查看登录日志的用户",
+                [u["username"] for u in users],
+                key="log_user_select"
+            )
+            if log_username:
+                log_user = get_user(log_username)
+                log_count = len(get_login_logs_by_username(log_username))
+                st.info(f"该用户共有 {log_count} 条登录记录")
+                if st.button("📋 查看登录日志", use_container_width=True, type="primary"):
+                    st.session_state[f"show_login_logs_{log_username}"] = True
+
+        if any(st.session_state.get(f"show_login_logs_{u['username']}", False) for u in users):
+            for u in users:
+                if st.session_state.get(f"show_login_logs_{u['username']}", False):
+                    target_user = u
+                    break
+            with st.expander(f"📋 {target_user.get('full_name', target_user['username'])} 的登录日志", expanded=True):
+                login_logs = get_login_logs_by_username(target_user["username"])
+                if not login_logs:
+                    st.info("暂无登录记录")
+                else:
+                    log_data = []
+                    for log in login_logs:
+                        log_data.append({
+                            "登录时间": log["login_time"],
+                            "登录IP": log["ip_address"],
+                            "登录状态": "✅ 成功" if log["success"] else "❌ 失败",
+                            "备注": log.get("message", "")
+                        })
+                    log_df = pd.DataFrame(log_data)
+                    st.dataframe(log_df, use_container_width=True, hide_index=True)
+
+                    success_count = sum(1 for log in login_logs if log["success"])
+                    fail_count = len(login_logs) - success_count
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("总登录次数", len(login_logs))
+                    with col2:
+                        st.metric("成功次数", success_count)
+                    with col3:
+                        st.metric("失败次数", fail_count)
+
+                if st.button("关闭日志", key=f"close_logs_{target_user['username']}", use_container_width=True):
+                    st.session_state[f"show_login_logs_{target_user['username']}"] = False
+                    st.rerun()
 
     with tab2:
         st.subheader("添加新用户")

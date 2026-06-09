@@ -1,0 +1,93 @@
+[
+  {
+    "id": "NOTIF-84A90D0B1D",
+    "rule_id": "urgent_bug",
+    "rule_name": "紧急Bug报告预警",
+    "severity": "critical",
+    "message": "检测到 4 条紧急Bug报告需要立即处理",
+    "details": {
+      "urgent_bugs": [
+        {
+          "id": "FB-9A43F15D",
+          "content": "系统突然崩溃了，所有数据都没保存，紧急求助！",
+          "date": "2026-06-09 20:15:36"
+        },
+        {
+          "id": "FB-77F414CF",
+          "content": "APP频繁闪退，根本没法正常使用，一打开就闪退。",
+          "date": "2026-06-09 18:15:36"
+        },
+        {
+          "id": "FB-D753CEE6",
+          "content": "服务器宕机了，整个系统都无法访问，业务已经停摆。",
+          "date": "2026-06-09 16:15:36"
+        },
+        {
+          "id": "FB-F3281443",
+          "content": "所有用户都无法登录，一直提示登录失败，紧急修复！",
+          "date": "2026-06-09 14:15:36"
+        }
+      ],
+      "count": 4
+    },
+    "created_at": "2026-06-09 20:15:36",
+    "read": false,
+    "channels": [
+      "in_app"
+    ],
+    "target_user": "viewer"
+  },
+  {
+    "id": "NOTIF-3C3D07E85B",
+    "rule_id": "urgent_bug",
+    "rule_name": "紧急Bug报告预警",
+    "severity": "critical",
+    "message": "检测到 4 条紧急Bug报告需要立即处理",
+    "details": {
+      "urgent_bugs": [
+        {
+          "id": "FB-9A43F15D",
+          "content": "系统突然崩溃了，所有数据都没保存，紧急求助！",
+          "date": "2026-06-09 20:15:36"
+        },
+        {
+          "id": "FB-77F414CF",
+          "content": "APP频繁闪退，根本没法正常使用，一打开就闪退。",
+          "date": "2026-06-09 18:15:36"
+        },
+        {
+          "id": "FB-D753CEE6",
+          "content": "服务器宕机了，整个系统都无法访问，业务已经停摆。",
+          "date": "2026-06-09 16:15:36"
+        },
+        {
+          "id": "FB-F3281443",
+          "content": "所有用户都无法登录，一直提示登录失败，紧急修复！",
+          "date": "2026-06-09 14:15:36"
+        }
+      ],
+      "count": 4
+    },
+    "created_at": "2026-06-09 20:15:36",
+    "read": false,
+    "channels": [
+      "in_app",
+      "email"
+    ],
+    "target_user": "admin"
+  },
+  {
+    "id": "NOTIF-64D1E3E66C",
+    "rule_id": "urgent_bug",
+    "rule_name": "紧急缺陷",
+    "severity": "critical",
+    "message": "测试",
+    "details": {},
+    "created_at": "2026-06-09 19:07:53",
+    "read": false,
+    "channels": [
+      "in_app"
+    ],
+    "target_user": "viewer"
+  }
+]
