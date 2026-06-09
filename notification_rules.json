@@ -53,5 +53,76 @@
     "notify_channels": [
       "in_app"
     ]
+  },
+  "user_subscriptions": {
+    "default": {
+      "enabled": true,
+      "subscribed_rules": [
+        "feedback_volume",
+        "urgent_bug",
+        "negative_sentiment",
+        "pending_backlog"
+      ],
+      "rule_channels": {
+        "feedback_volume": [
+          "in_app"
+        ],
+        "urgent_bug": [
+          "in_app",
+          "email"
+        ],
+        "negative_sentiment": [
+          "in_app"
+        ],
+        "pending_backlog": [
+          "in_app"
+        ]
+      }
+    },
+    "admin": {
+      "enabled": true,
+      "subscribed_rules": [
+        "feedback_volume",
+        "urgent_bug",
+        "negative_sentiment",
+        "pending_backlog"
+      ],
+      "rule_channels": {
+        "feedback_volume": [
+          "in_app"
+        ],
+        "urgent_bug": [
+          "in_app",
+          "email"
+        ],
+        "negative_sentiment": [
+          "in_app"
+        ],
+        "pending_backlog": [
+          "in_app"
+        ]
+      }
+    },
+    "viewer": {
+      "enabled": true,
+      "subscribed_rules": [
+        "feedback_volume",
+        "urgent_bug"
+      ],
+      "rule_channels": {
+        "feedback_volume": [
+          "in_app"
+        ],
+        "urgent_bug": [
+          "in_app"
+        ],
+        "negative_sentiment": [
+          "in_app"
+        ],
+        "pending_backlog": [
+          "in_app"
+        ]
+      }
+    }
   }
 }

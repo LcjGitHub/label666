@@ -5,7 +5,9 @@ from auth_utils import (
     is_logged_in,
     render_login_page,
     render_user_info_in_sidebar,
-    require_permission
+    require_permission,
+    get_current_user,
+    get_users
 )
 from sidebar_config import render_sidebar, render_sidebar_notification_center
 from notification_utils import (
@@ -17,6 +19,7 @@ from notification_utils import (
     load_display_config,
     save_display_config,
     DEFAULT_ALERT_RULES,
+    DEFAULT_USER_SUBSCRIPTION,
     NOTIFICATION_CHANNELS,
     SEVERITY_LEVELS,
     render_notification_icon,
@@ -25,7 +28,12 @@ from notification_utils import (
     run_monitoring_checks,
     create_notification,
     get_unread_count,
-    send_email_notification
+    send_email_notification,
+    get_user_subscription,
+    save_user_subscription,
+    load_user_subscriptions,
+    is_user_subscribed_to_rule,
+    get_user_channels_for_rule
 )
 
 
@@ -64,8 +72,9 @@ if not require_permission("edit_config"):
 st.title("🔔 通知设置")
 st.markdown("---")
 
-tab_rules, tab_channels, tab_history = st.tabs([
+tab_rules, tab_subscription, tab_channels, tab_history = st.tabs([
     "⚙️ 预警规则配置",
+    "📝 订阅规则配置",
     "📨 通知渠道设置",
     "📜 通知历史记录"
 ])
@@ -240,6 +249,184 @@ with tab_rules:
             save_notification_rules(DEFAULT_ALERT_RULES.copy())
             st.success("✅ 所有规则已恢复默认设置")
             st.rerun()
+
+with tab_subscription:
+    st.subheader("订阅规则配置")
+    st.markdown("为每个用户配置个性化的通知订阅规则，选择需要接收的通知类型和接收渠道。")
+    st.markdown("---")
+    
+    users = get_users()
+    current_user = get_current_user()
+    all_usernames = [u["username"] for u in users]
+    
+    col_user_select, col_info = st.columns([1, 2])
+    
+    with col_user_select:
+        target_username = st.selectbox(
+            "选择用户",
+            options=all_usernames,
+            index=all_usernames.index(current_user["username"]) if current_user and current_user["username"] in all_usernames else 0,
+            format_func=lambda x: next((f"{u.get('full_name', x)} ({x})" for u in users if u["username"] == x), x)
+        )
+    
+    with col_info:
+        target_user_info = next((u for u in users if u["username"] == target_username), None)
+        if target_user_info:
+            st.info(f"**用户**: {target_user_info.get('full_name', target_username)}  \n**邮箱**: {target_user_info.get('email', '未设置')}  \n**角色**: {target_user_info.get('role', '未知')}")
+    
+    user_sub = get_user_subscription(target_username)
+    rules = load_notification_rules()
+    
+    st.markdown("---")
+    
+    col_enabled, col_quick = st.columns([1, 2])
+    
+    with col_enabled:
+        sub_enabled = st.checkbox(
+            "启用通知订阅",
+            value=user_sub.get("enabled", True),
+            help="关闭后该用户将不会收到任何通知"
+        )
+    
+    with col_quick:
+        st.markdown("**快捷操作**")
+        col_q1, col_q2, col_q3 = st.columns(3)
+        with col_q1:
+            if st.button("📋 全选所有规则", use_container_width=True):
+                user_sub["subscribed_rules"] = list(DEFAULT_ALERT_RULES.keys())
+                st.rerun()
+        with col_q2:
+            if st.button("❌ 清空所有订阅", use_container_width=True):
+                user_sub["subscribed_rules"] = []
+                st.rerun()
+        with col_q3:
+            if st.button("🔄 恢复默认设置", use_container_width=True):
+                user_sub = DEFAULT_USER_SUBSCRIPTION.copy()
+                st.rerun()
+    
+    st.markdown("---")
+    st.markdown("### 📋 通知类型订阅")
+    st.markdown("勾选需要接收的通知类型，取消勾选将不再接收该类通知。")
+    
+    subscribed_rules = user_sub.get("subscribed_rules", list(DEFAULT_ALERT_RULES.keys()))
+    rule_channels = user_sub.get("rule_channels", DEFAULT_USER_SUBSCRIPTION["rule_channels"].copy())
+    
+    new_subscribed_rules = []
+    new_rule_channels = rule_channels.copy()
+    
+    for rule_id, default_rule in DEFAULT_ALERT_RULES.items():
+        current_rule = rules.get(rule_id, default_rule)
+        rule_name = current_rule.get("name", default_rule.get("name", rule_id))
+        rule_desc = current_rule.get("description", default_rule.get("description", ""))
+        severity = current_rule.get("severity", default_rule.get("severity", "warning"))
+        sev_info = SEVERITY_LEVELS.get(severity, SEVERITY_LEVELS["warning"])
+        rule_enabled = current_rule.get("enabled", True)
+        
+        is_checked = rule_id in subscribed_rules
+        
+        with st.container():
+            st.markdown(
+                f"""
+                <div style="padding: 0.75rem; border-radius: 0.5rem; background-color: {sev_info['color']}15; border-left: 4px solid {sev_info['color']}; margin-bottom: 0.75rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                        <div>
+                            <strong>{sev_info['icon']} {rule_name}</strong>
+                            <div style="font-size: 0.85rem; color: #666; margin-top: 0.25rem;">{rule_desc}</div>
+                            <div style="font-size: 0.8rem; color: #888; margin-top: 0.25rem;">
+                                规则状态：{'<span style="color: green;">✅ 已启用</span>' if rule_enabled else '<span style="color: #999;">⏸️ 已禁用</span>'}
+                                &nbsp;&nbsp;|&nbsp;&nbsp;
+                                严重程度：{sev_info['name']}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            
+            col_sub, col_ch = st.columns([1, 3])
+            
+            with col_sub:
+                sub_this = st.checkbox(
+                    "订阅此通知",
+                    value=is_checked,
+                    key=f"sub_{target_username}_{rule_id}",
+                    disabled=not sub_enabled
+                )
+                if sub_this:
+                    new_subscribed_rules.append(rule_id)
+            
+            with col_ch:
+                if sub_this and sub_enabled:
+                    st.markdown("**接收渠道**:")
+                    current_channels = new_rule_channels.get(rule_id, default_rule.get("notify_channels", ["in_app"]))
+                    selected_chs = []
+                    ch_cols = st.columns(len(NOTIFICATION_CHANNELS))
+                    for idx, (ch_id, ch_info) in enumerate(NOTIFICATION_CHANNELS.items()):
+                        with ch_cols[idx]:
+                            if st.checkbox(
+                                f"{ch_info['name']}",
+                                value=(ch_id in current_channels),
+                                key=f"ch_{target_username}_{rule_id}_{ch_id}",
+                                help=ch_info["description"]
+                            ):
+                                selected_chs.append(ch_id)
+                    if selected_chs:
+                        new_rule_channels[rule_id] = selected_chs
+        
+        st.markdown("---")
+    
+    st.markdown("### 📊 订阅概览")
+    
+    col_sum1, col_sum2, col_sum3 = st.columns(3)
+    with col_sum1:
+        st.metric("已订阅规则数", len(new_subscribed_rules), f"共 {len(DEFAULT_ALERT_RULES)} 个规则")
+    with col_sum2:
+        enabled_count = sum(1 for rid in new_subscribed_rules if rules.get(rid, {}).get("enabled", True))
+        st.metric("有效订阅（规则已启用）", enabled_count)
+    with col_sum3:
+        has_email = any("email" in new_rule_channels.get(rid, []) for rid in new_subscribed_rules)
+        st.metric("邮件通知", "已启用" if has_email else "未启用")
+    
+    st.markdown("---")
+    
+    col_save, col_test = st.columns([1, 1])
+    
+    with col_save:
+        if st.button("💾 保存订阅设置", use_container_width=True, type="primary"):
+            new_subscription = {
+                "enabled": sub_enabled,
+                "subscribed_rules": new_subscribed_rules,
+                "rule_channels": new_rule_channels
+            }
+            save_user_subscription(target_username, new_subscription)
+            st.success(f"✅ 用户「{target_username}」的订阅规则已保存！")
+            st.rerun()
+    
+    with col_test:
+        if st.button("🧪 发送测试通知", use_container_width=True):
+            test_rules_to_send = new_subscribed_rules if sub_enabled else []
+            if not test_rules_to_send:
+                st.warning("⚠️ 当前没有订阅任何通知类型，请先订阅后测试。")
+            else:
+                test_rule_id = test_rules_to_send[0]
+                test_rule = rules.get(test_rule_id, DEFAULT_ALERT_RULES.get(test_rule_id, {}))
+                test_channels = new_rule_channels.get(test_rule_id, ["in_app"])
+                test_notif = create_notification(
+                    rule_id=test_rule_id,
+                    rule_name=test_rule.get("name", test_rule_id),
+                    severity=test_rule.get("severity", "warning"),
+                    message=f"这是一条发送给「{target_username}」的订阅测试通知。",
+                    details={"test": True, "test_user": target_username, "timestamp": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")},
+                    channels=test_channels,
+                    target_username=target_username
+                )
+                if test_notif:
+                    sev_info = SEVERITY_LEVELS.get(test_rule.get("severity", "warning"), SEVERITY_LEVELS["warning"])
+                    st.success(f"✅ 测试通知已发送给「{target_username}」！通知ID: {test_notif['id']}")
+                    st.toast(f"{sev_info['icon']} 测试通知已创建", icon=sev_info["icon"])
+                else:
+                    st.warning("⚠️ 通知未创建，请检查订阅设置和渠道配置。")
 
 with tab_channels:
     st.subheader("通知渠道设置")
