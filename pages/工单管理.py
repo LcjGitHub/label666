@@ -248,6 +248,32 @@ def render_ticket_list():
         if "ticket_detail" in report_config["tables"]:
             data_frames["ticket_detail"] = df
     
+    ticket_pdf_buffer = None
+    ticket_excel_buffer = None
+    if report_config["charts"] or report_config["tables"]:
+        ticket_pdf_buffer = create_pdf_report(
+            report_title=report_config["title"],
+            report_date=report_config["date"],
+            report_notes=report_config["notes"],
+            page_type="tickets",
+            selected_charts=report_config["charts"],
+            selected_tables=report_config["tables"],
+            chart_images=chart_images,
+            data_frames=data_frames,
+            key_metrics=key_metrics
+        )
+        ticket_excel_buffer = create_excel_report(
+            report_title=report_config["title"],
+            report_date=report_config["date"],
+            report_notes=report_config["notes"],
+            page_type="tickets",
+            selected_charts=report_config["charts"],
+            selected_tables=report_config["tables"],
+            chart_images=chart_images,
+            data_frames=data_frames,
+            key_metrics=key_metrics
+        )
+    
     if st.session_state.show_report_preview_tickets:
         st.markdown("---")
         st.subheader("📄 报告预览")
@@ -255,72 +281,81 @@ def render_ticket_list():
         with st.container():
             col_pdf, col_excel = st.columns(2)
             with col_pdf:
-                if st.button("📥 导出 PDF", use_container_width=True, type="primary", key="ticket_pdf_btn"):
-                    pdf_buffer = create_pdf_report(
-                        report_title=report_config["title"],
-                        report_date=report_config["date"],
-                        report_notes=report_config["notes"],
-                        page_type="tickets",
-                        selected_charts=report_config["charts"],
-                        selected_tables=report_config["tables"],
-                        chart_images=chart_images,
-                        data_frames=data_frames,
-                        key_metrics=key_metrics)
+                if ticket_pdf_buffer:
                     st.download_button(
-                        label="⬇️ 下载 PDF 报告",
-                        data=pdf_buffer,
+                        label="📥 导出 PDF",
+                        data=ticket_pdf_buffer,
                         file_name=f"{report_config['title']}_{report_config['date']}.pdf",
                         mime="application/pdf",
                         use_container_width=True,
                         type="primary",
-                        key="ticket_pdf_download")
+                        key="ticket_pdf_download"
+                    )
+                else:
+                    st.info("请至少选择一个图表或数据表格")
             
             with col_excel:
-                if st.button("📊 导出 Excel", use_container_width=True, type="primary", key="ticket_excel_btn"):
-                    excel_buffer = create_excel_report(
-                        report_title=report_config["title"],
-                        report_date=report_config["date"],
-                        report_notes=report_config["notes"],
-                        page_type="tickets",
-                        selected_charts=report_config["charts"],
-                        selected_tables=report_config["tables"],
-                        chart_images=chart_images,
-                        data_frames=data_frames,
-                        key_metrics=key_metrics)
+                if ticket_excel_buffer:
                     st.download_button(
-                        label="⬇️ 下载 Excel 报告",
-                        data=excel_buffer,
+                        label="📊 导出 Excel",
+                        data=ticket_excel_buffer,
                         file_name=f"{report_config['title']}_{report_config['date']}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True,
                         type="primary",
-                        key="ticket_excel_download")
+                        key="ticket_excel_download"
+                    )
+                else:
+                    st.info("请至少选择一个图表或数据表格")
             
             st.markdown("---")
             st.markdown("### 报告基本信息")
-            st.markdown(f"- **报告标题**: {report_config['title']}")
-            st.markdown(f"- **报告日期**: {report_config['date']}")
-            if report_config["notes"]:
-                st.markdown(f"- **备注信息**: {report_config['notes']}")
+            info_col1, info_col2 = st.columns(2)
+            with info_col1:
+                st.markdown(f"- **报告标题**: {report_config['title']}")
+                st.markdown(f"- **报告日期**: {report_config['date']}")
+            with info_col2:
+                if report_config["notes"]:
+                    st.markdown(f"- **备注信息**: {report_config['notes']}")
             
             st.markdown("---")
             st.markdown("### 关键指标摘要")
-            for metric in key_metrics:
-                st.markdown(f"- **{metric['label']}**: {metric['value']}")
+            metric_cols = st.columns(min(len(key_metrics), 3))
+            for i, metric in enumerate(key_metrics):
+                with metric_cols[i % 3]:
+                    st.metric(label=metric['label'], value=metric['value'], delta=metric['delta'])
             
-            if report_config["charts"]:
+            chart_names, table_names = get_available_items("tickets")
+            if report_config["charts"] and chart_images:
                 st.markdown("---")
-                st.markdown("### 选中的图表")
-                chart_names, _ = get_available_items("tickets")
-                for c in report_config["charts"]:
-                    st.markdown(f"- ✅ {chart_names.get(c, c)}")
+                st.markdown("### 图表预览")
+                num_charts = len(report_config["charts"])
+                chart_cols = st.columns(min(num_charts, 2))
+                for i, chart_id in enumerate(report_config["charts"]):
+                    if chart_id in chart_images and chart_images[chart_id]:
+                        col_idx = i % 2
+                        with chart_cols[col_idx]:
+                            st.markdown(f"**{chart_names.get(chart_id, chart_id)}**")
+                            img_data = chart_images[chart_id]
+                            if hasattr(img_data, 'seek'):
+                                img_data.seek(0)
+                            st.image(img_data, use_column_width=True)
+                            if (i + 1) % 2 == 0 and i < num_charts - 1:
+                                st.markdown("---")
             
-            if report_config["tables"]:
+            if report_config["tables"] and data_frames:
                 st.markdown("---")
-                st.markdown("### 选中的数据表格")
-                _, table_names = get_available_items("tickets")
-                for t in report_config["tables"]:
-                    st.markdown(f"- ✅ {table_names.get(t, t)}")
+                st.markdown("### 数据表格预览")
+                for table_id in report_config["tables"]:
+                    if table_id in data_frames and data_frames[table_id] is not None:
+                        df = data_frames[table_id]
+                        if not df.empty:
+                            st.markdown(f"**{table_names.get(table_id, table_id)}**")
+                            preview_df = df.head(5)
+                            st.dataframe(preview_df, use_container_width=True, hide_index=True)
+                            if len(df) > 5:
+                                st.caption(f"共 {len(df)} 条数据，仅显示前 5 条")
+                            st.markdown("---")
 
 
 def render_ticket_detail():

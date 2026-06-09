@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from report_utils import get_available_items
+from report_templates import get_available_items, REPORT_DEFAULT_TITLES
 
 SIDEBAR_CONFIG = {
     "page_title": "用户反馈分析",
@@ -99,18 +99,6 @@ SIDEBAR_CONFIG = {
             ]
         },
         {
-            "id": "report_export",
-            "title": "📤 报告导出",
-            "expanded": False,
-            "controls": [
-                {
-                    "id": "report_tip",
-                    "type": "info",
-                    "content": "点击页面顶部的「报告导出」按钮进行详细配置"
-                }
-            ]
-        },
-        {
             "id": "tips",
             "title": None,
             "expanded": True,
@@ -118,18 +106,11 @@ SIDEBAR_CONFIG = {
                 {
                     "id": "info_tip",
                     "type": "info",
-                    "content": "💡 提示：使用上方筛选器来过滤数据"
+                    "content": "💡 提示：使用上方筛选器来过滤数据，在页面顶部配置报告导出"
                 }
             ]
         }
     ]
-}
-
-
-REPORT_DEFAULT_TITLES = {
-    "feedback": "用户反馈分析报告",
-    "sentiment": "情感分析报告",
-    "tickets": "工单统计报告"
 }
 
 
@@ -139,28 +120,33 @@ def render_report_export_section(page_type):
     with st.expander("📤 报告导出配置", expanded=False):
         st.markdown("#### 报告基本信息")
         
-        default_title = REPORT_DEFAULT_TITLES.get(page_type, "分析报告")
+        title_key = f"report_title_{page_type}"
+        if title_key not in st.session_state:
+            st.session_state[title_key] = REPORT_DEFAULT_TITLES.get(page_type, "分析报告")
         report_title = st.text_input(
             "报告标题",
-            value=st.session_state.get(f"report_title_{page_type}", default_title),
+            key=title_key,
             help="设置导出报告的标题"
         )
-        st.session_state[f"report_title_{page_type}"] = report_title
         
+        date_key = f"report_date_{page_type}"
+        if date_key not in st.session_state:
+            st.session_state[date_key] = datetime.now().date()
         report_date = st.date_input(
             "报告日期",
-            value=st.session_state.get(f"report_date_{page_type}", datetime.now().date()),
+            key=date_key,
             help="选择报告生成日期"
         )
-        st.session_state[f"report_date_{page_type}"] = report_date
         
+        notes_key = f"report_notes_{page_type}"
+        if notes_key not in st.session_state:
+            st.session_state[notes_key] = ""
         report_notes = st.text_area(
             "备注信息",
-            value=st.session_state.get(f"report_notes_{page_type}", ""),
+            key=notes_key,
             height=80,
             help="添加报告备注信息（可选）"
         )
-        st.session_state[f"report_notes_{page_type}"] = report_notes
         
         st.markdown("---")
         st.markdown("#### 选择报告内容")
@@ -168,19 +154,19 @@ def render_report_export_section(page_type):
         st.markdown("**📊 包含图表**")
         selected_charts = []
         for chart_id, chart_name in charts.items():
-            key = f"report_chart_{page_type}_{chart_id}"
-            if key not in st.session_state:
-                st.session_state[key] = True
-            if st.checkbox(chart_name, value=st.session_state[key], key=key):
+            chart_key = f"report_chart_{page_type}_{chart_id}"
+            if chart_key not in st.session_state:
+                st.session_state[chart_key] = True
+            if st.checkbox(chart_name, key=chart_key):
                 selected_charts.append(chart_id)
         
         st.markdown("**📋 包含数据表格**")
         selected_tables = []
         for table_id, table_name in tables.items():
-            key = f"report_table_{page_type}_{table_id}"
-            if key not in st.session_state:
-                st.session_state[key] = True
-            if st.checkbox(table_name, value=st.session_state[key], key=key):
+            table_key = f"report_table_{page_type}_{table_id}"
+            if table_key not in st.session_state:
+                st.session_state[table_key] = True
+            if st.checkbox(table_name, key=table_key):
                 selected_tables.append(table_id)
         
         return {
