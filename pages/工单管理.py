@@ -8,7 +8,8 @@ from auth_utils import (
     render_login_page,
     render_user_info_in_sidebar,
     has_permission,
-    require_permission
+    require_permission,
+    get_current_user
 )
 from sidebar_config import render_sidebar, render_report_export_section, render_sidebar_notification_center
 from notification_utils import (
@@ -26,6 +27,8 @@ from ticket_utils import (
     update_ticket,
     delete_ticket,
     add_ticket_note,
+    add_ticket_comment,
+    get_ticket_comments,
     filter_tickets,
     tickets_to_dataframe,
     get_ticket_statistics,
@@ -538,6 +541,42 @@ def render_ticket_detail():
                 st.rerun()
     else:
         st.info("🔒 您没有「管理工单」权限，无法添加备注。")
+
+    st.markdown("---")
+    st.subheader("💬 工单评论")
+
+    comments = get_ticket_comments(ticket_id)
+    if comments:
+        for comment in comments:
+            with st.container():
+                col_user, col_time = st.columns([2, 3])
+                col_user.markdown(f"**👤 {comment['commenter']}**")
+                col_time.markdown(f"🕐 {comment['created_at']}")
+                st.markdown(comment['content'].replace('\n', '\n\n'))
+                st.markdown("---")
+    else:
+        st.info("暂无评论记录")
+
+    if can_manage_tickets:
+        current_user = get_current_user()
+        commenter_name = current_user.get("full_name", current_user.get("username", "未知用户")) if current_user else "未知用户"
+        with st.form("add_comment_form"):
+            st.markdown(f"**评论人**: {commenter_name}")
+            new_comment = st.text_area(
+                "添加评论",
+                height=120,
+                placeholder="在这里输入评论内容，记录本次沟通的详细信息..."
+            )
+            comment_submitted = st.form_submit_button("💬 发布评论", use_container_width=True, type="primary")
+            if comment_submitted:
+                if not new_comment.strip():
+                    st.error("请输入评论内容")
+                else:
+                    add_ticket_comment(ticket_id, commenter_name, new_comment.strip())
+                    st.success("✅ 评论已发布！")
+                    st.rerun()
+    else:
+        st.info("🔒 您没有「管理工单」权限，无法添加评论。")
 
     st.markdown("---")
     st.subheader("📜 操作历史")

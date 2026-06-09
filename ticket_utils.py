@@ -70,6 +70,7 @@ def create_ticket_from_feedback(feedback_id, feedback_content, feedback_type,
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "due_date": due_date,
         "notes": notes,
+        "comments": [],
         "history": [
             {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -156,6 +157,38 @@ def add_ticket_note(ticket_id, note):
             save_tickets(tickets)
             return ticket
     return None
+
+
+def add_ticket_comment(ticket_id, commenter, content):
+    tickets = load_tickets()
+    for ticket in tickets:
+        if ticket["ticket_id"] == ticket_id:
+            if "comments" not in ticket:
+                ticket["comments"] = []
+            comment = {
+                "comment_id": str(uuid.uuid4())[:8],
+                "commenter": commenter,
+                "content": content,
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            ticket["comments"].append(comment)
+            ticket["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ticket["history"].append({
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "action": "添加评论",
+                "details": f"{commenter}: {content[:50]}" + ("..." if len(content) > 50 else "")
+            })
+            save_tickets(tickets)
+            return ticket
+    return None
+
+
+def get_ticket_comments(ticket_id):
+    ticket = get_ticket(ticket_id)
+    if not ticket:
+        return []
+    comments = ticket.get("comments", [])
+    return sorted(comments, key=lambda c: c["created_at"], reverse=True)
 
 
 def get_available_status_transitions(current_status):

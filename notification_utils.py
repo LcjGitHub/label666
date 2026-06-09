@@ -22,8 +22,8 @@ DEFAULT_ALERT_RULES = {
         "enabled": True,
         "name": "反馈数量预警",
         "description": "当指定时间窗口内新增反馈数量超过阈值时触发预警",
-        "threshold": 20,
-        "time_window_hours": 24,
+        "threshold": 10,
+        "time_window_hours": 48,
         "severity": "warning",
         "notify_channels": ["in_app"]
     },
@@ -457,12 +457,14 @@ def send_email_notification(notification):
 
 def render_notification_icon():
     display_config = load_display_config()
-    if not display_config.get("show_top_badge", True):
-        return 0
+    show_badge = display_config.get("show_top_badge", True)
     
     unread_count = get_unread_count()
     
-    badge_html = f'<span style="position:absolute;top:-6px;right:-6px;background:#ef4444;color:white;border-radius:9999px;font-size:10px;font-weight:bold;padding:1px 6px;min-width:16px;text-align:center;">{unread_count}</span>' if unread_count > 0 else ''
+    if show_badge:
+        badge_html = f'<span style="position:absolute;top:-6px;right:-6px;background:#ef4444;color:white;border-radius:9999px;font-size:10px;font-weight:bold;padding:1px 6px;min-width:16px;text-align:center;">{unread_count}</span>' if unread_count > 0 else ''
+    else:
+        badge_html = ''
     
     icon_html = f"""
     <style>
@@ -479,7 +481,7 @@ def render_notification_icon():
     
     col1, col2 = st.columns([1, 6])
     with col1:
-        bell_label = f"🔔 {unread_count}" if unread_count > 0 else "🔔"
+        bell_label = f"🔔 {unread_count}" if (show_badge and unread_count > 0) else "🔔"
         if st.button(bell_label, key="toggle_notification_popup", help="查看通知"):
             st.session_state.show_notification_popup = not st.session_state.show_notification_popup
             st.rerun()
@@ -498,8 +500,33 @@ def render_notification_popup():
     unread = get_notifications(limit=10, unread_only=True)
     all_notifs = get_notifications(limit=10)
     
+    st.markdown(
+        """
+        <style>
+        .notification-popup-panel {
+            position: fixed;
+            top: 3.5rem;
+            right: 1rem;
+            width: 450px;
+            max-height: calc(100vh - 5rem);
+            overflow-y: auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            z-index: 99998;
+            padding: 1rem;
+            border: 1px solid #e5e7eb;
+        }
+        .notification-popup-panel .stButton button {
+            width: 100%;
+        }
+        </style>
+        <div class="notification-popup-panel">
+        """,
+        unsafe_allow_html=True
+    )
+    
     with st.container():
-        st.markdown("---")
         st.markdown("### 🔔 通知中心")
         
         if not all_notifs:
@@ -532,6 +559,8 @@ def render_notification_popup():
         if st.button("关闭通知面板", use_container_width=True, key="close_notification_popup"):
             st.session_state.show_notification_popup = False
             st.rerun()
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _render_single_notification(notification, prefix=""):

@@ -146,6 +146,29 @@ def generate_mock_feedback_data():
         '情感强度': scores
     })
     
+    now = datetime.now()
+    urgent_feedback_texts = [
+        "系统突然崩溃了，所有数据都没保存，紧急求助！",
+        "APP频繁闪退，根本没法正常使用，一打开就闪退。",
+        "服务器宕机了，整个系统都无法访问，业务已经停摆。",
+        "所有用户都无法登录，一直提示登录失败，紧急修复！"
+    ]
+    
+    urgent_data = []
+    for i, text in enumerate(urgent_feedback_texts):
+        sentiment, score = analyze_sentiment(text)
+        urgent_data.append({
+            '反馈ID': f"FB-{uuid.uuid4().hex[:8].upper()}",
+            '日期': now - timedelta(hours=i * 2),
+            '反馈内容': text,
+            '反馈类型': 'Bug 报告',
+            '情感类别': sentiment,
+            '情感强度': score
+        })
+    
+    urgent_df = pd.DataFrame(urgent_data)
+    df = pd.concat([df, urgent_df], ignore_index=True)
+    
     return df
 
 def generate_feedback_summary_data():

@@ -3,8 +3,8 @@
     "enabled": true,
     "name": "反馈数量预警",
     "description": "当指定时间窗口内新增反馈数量超过阈值时触发预警",
-    "threshold": 20,
-    "time_window_hours": 24,
+    "threshold": 10,
+    "time_window_hours": 48,
     "severity": "warning",
     "notify_channels": [
       "in_app"
