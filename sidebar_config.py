@@ -266,11 +266,11 @@ def render_sidebar_notification_center():
                     st.info("没有未读通知")
                 else:
                     for notif in unread:
-                        _render_sidebar_notification_item(notif)
+                        _render_sidebar_notification_item(notif, prefix="sb_unread")
             
             with tab_all:
                 for notif in all_notifs:
-                    _render_sidebar_notification_item(notif)
+                    _render_sidebar_notification_item(notif, prefix="sb_all")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -286,7 +286,7 @@ def render_sidebar_notification_center():
             st.page_link("pages/通知设置.py", label="⚙️ 通知设置", use_container_width=True)
 
 
-def _render_sidebar_notification_item(notification):
+def _render_sidebar_notification_item(notification, prefix="sb"):
     severity = notification.get("severity", "info")
     sev_info = SEVERITY_LEVELS.get(severity, SEVERITY_LEVELS["info"])
     is_read = notification.get("read", False)
@@ -319,11 +319,11 @@ def _render_sidebar_notification_item(notification):
     col_read, col_del = st.columns([1, 1])
     with col_read:
         if not is_read:
-            if st.button("✓ 已读", key=f"sb_read_{notification['id']}", use_container_width=True):
+            if st.button("✓ 已读", key=f"{prefix}_read_{notification['id']}", use_container_width=True):
                 mark_as_read(notification["id"])
                 st.rerun()
     with col_del:
-        if st.button("🗑️", key=f"sb_del_{notification['id']}", use_container_width=True):
+        if st.button("🗑️", key=f"{prefix}_del_{notification['id']}", use_container_width=True):
             delete_notification(notification["id"])
             st.rerun()
     

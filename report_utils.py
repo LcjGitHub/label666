@@ -282,6 +282,8 @@ def create_excel_report(
             metrics_ws.write(row, 2, str(metric.get('delta', '')), cell_fmt)
             row += 1
     
+    temp_files = []
+    
     chart_config = AVAILABLE_CHARTS.get(page_type, {})
     if selected_charts and chart_images:
         chart_ws = _get_or_create_worksheet(workbook, EXCEL_SHEET_NAMES['charts'])
@@ -303,28 +305,22 @@ def create_excel_report(
                     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
                         img_data.save(tmp, format='PNG')
                         tmp_path = tmp.name
-                    
-                    try:
-                        chart_ws.insert_image(row, 0, tmp_path, {
-                            'x_scale': IMAGE_CONFIG['excel']['x_scale'],
-                            'y_scale': IMAGE_CONFIG['excel']['y_scale']
-                        })
-                        row += IMAGE_CONFIG['excel']['row_offset']
-                    finally:
-                        os.unlink(tmp_path)
+                    temp_files.append(tmp_path)
+                    chart_ws.insert_image(row, 0, tmp_path, {
+                        'x_scale': IMAGE_CONFIG['excel']['x_scale'],
+                        'y_scale': IMAGE_CONFIG['excel']['y_scale']
+                    })
+                    row += IMAGE_CONFIG['excel']['row_offset']
                 elif isinstance(img_data, io.BytesIO):
                     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
                         tmp.write(img_data.getvalue())
                         tmp_path = tmp.name
-                    
-                    try:
-                        chart_ws.insert_image(row, 0, tmp_path, {
-                            'x_scale': IMAGE_CONFIG['excel']['x_scale'],
-                            'y_scale': IMAGE_CONFIG['excel']['y_scale']
-                        })
-                        row += IMAGE_CONFIG['excel']['row_offset']
-                    finally:
-                        os.unlink(tmp_path)
+                    temp_files.append(tmp_path)
+                    chart_ws.insert_image(row, 0, tmp_path, {
+                        'x_scale': IMAGE_CONFIG['excel']['x_scale'],
+                        'y_scale': IMAGE_CONFIG['excel']['y_scale']
+                    })
+                    row += IMAGE_CONFIG['excel']['row_offset']
                 else:
                     row += 2
     
@@ -370,5 +366,13 @@ def create_excel_report(
                         row += 1
     
     workbook.close()
+    
+    for tmp_path in temp_files:
+        try:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+        except Exception:
+            pass
+    
     buffer.seek(0)
     return buffer

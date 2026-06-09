@@ -254,91 +254,38 @@ daily_intensity = feedback_df.groupby(
 daily_intensity['日期'] = daily_intensity['日期'].dt.strftime('%Y-%m-%d')
 daily_intensity['平均情感强度'] = daily_intensity['平均情感强度'].round(2)
 
-fig_intensity = go.Figure()
+if len(daily_intensity) > 0 and not daily_intensity['平均情感强度'].isna().all():
+    fig_intensity = go.Figure()
 
-fig_intensity.add_trace(go.Scatter(
-    x=daily_intensity['日期'],
-    y=daily_intensity['平均情感强度'],
-    mode='lines+markers',
-    name='平均情感强度',
-    line=dict(color='#636EFA', width=3),
-    marker=dict(size=10),
-    hovertemplate='日期: %{x}<br>平均情感强度: %{y}<br>反馈数量: %{customdata}<extra></extra>',
-    customdata=daily_intensity['反馈数量']
-))
+    fig_intensity.add_trace(go.Scatter(
+        x=daily_intensity['日期'],
+        y=daily_intensity['平均情感强度'],
+        mode='lines+markers',
+        name='平均情感强度',
+        line=dict(color='#636EFA', width=3),
+        marker=dict(size=10),
+        hovertemplate='日期: %{x}<br>平均情感强度: %{y}<br>反馈数量: %{customdata}<extra></extra>',
+        customdata=daily_intensity['反馈数量']
+    ))
 
-fig_intensity.add_trace(go.Scatter(
-    x=daily_intensity['日期'],
-    y=[0] * len(daily_intensity),
-    mode='lines',
-    name='中性基准线',
-    line=dict(color='#95A5A6', width=1, dash='dash'),
-    showlegend=True
-))
-
-fig_intensity.update_layout(
-    height=420,
-    margin=dict(t=50, b=50, l=50, r=50),
-    xaxis_title="日期",
-    yaxis_title="平均情感强度",
-    hovermode='x unified',
-    legend=dict(
-        orientation="h",
-        yanchor="bottom",
-        y=-0.2,
-        xanchor="center",
-        x=0.5
-    ),
-    yaxis=dict(
-        zeroline=True,
-        zerolinecolor='#95A5A6',
-        zerolinewidth=1
-    )
-)
-
-st.plotly_chart(fig_intensity, use_container_width=True, config=plotly_config)
-
-intensity_col1, intensity_col2, intensity_col3 = st.columns(3)
-avg_intensity_all = feedback_df['情感强度'].mean()
-max_intensity_day = daily_intensity.loc[daily_intensity['平均情感强度'].idxmax()] if len(daily_intensity) > 0 else None
-min_intensity_day = daily_intensity.loc[daily_intensity['平均情感强度'].idxmin()] if len(daily_intensity) > 0 else None
-
-with intensity_col1:
-    st.metric(
-        label="整体平均情感强度",
-        value=f"{avg_intensity_all:.2f}" if not pd.isna(avg_intensity_all) else "N/A"
-    )
-with intensity_col2:
-    if max_intensity_day is not None:
-        st.metric(
-            label="最高情感强度日",
-            value=f"{max_intensity_day['平均情感强度']:.2f}",
-            delta=max_intensity_day['日期']
+    fig_intensity.update_layout(
+        height=420,
+        margin=dict(t=50, b=50, l=50, r=50),
+        xaxis_title="日期",
+        yaxis_title="平均情感强度",
+        hovermode='x unified',
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=-0.2,
+            xanchor="center",
+            x=0.5
         )
-    else:
-        st.metric(label="最高情感强度日", value="N/A")
-with intensity_col3:
-    if min_intensity_day is not None:
-        st.metric(
-            label="最低情感强度日",
-            value=f"{min_intensity_day['平均情感强度']:.2f}",
-            delta=min_intensity_day['日期'],
-            delta_color="inverse"
-        )
-    else:
-        st.metric(label="最低情感强度日", value="N/A")
+    )
 
-avg_intensity_str = f"{avg_intensity_all:.2f}" if not pd.isna(avg_intensity_all) else "N/A"
-max_intensity_str = f"{max_intensity_day['平均情感强度']:.2f}" if max_intensity_day is not None else "N/A"
-min_intensity_str = f"{min_intensity_day['平均情感强度']:.2f}" if min_intensity_day is not None else "N/A"
-max_intensity_date = max_intensity_day['日期'] if max_intensity_day is not None else ""
-min_intensity_date = min_intensity_day['日期'] if min_intensity_day is not None else ""
-
-key_metrics.extend([
-    {"label": "整体平均情感强度", "value": avg_intensity_str, "delta": "所有反馈均值"},
-    {"label": "最高情感强度日", "value": max_intensity_str, "delta": max_intensity_date},
-    {"label": "最低情感强度日", "value": min_intensity_str, "delta": min_intensity_date}
-])
+    st.plotly_chart(fig_intensity, use_container_width=True, config=plotly_config)
+else:
+    st.info("暂无数据")
 
 st.markdown("---")
 
@@ -411,7 +358,7 @@ if report_config["charts"]:
         chart_images["sentiment_pie"] = convert_figure_to_image(fig_pie)
     if "sentiment_trend" in report_config["charts"]:
         chart_images["sentiment_trend"] = convert_figure_to_image(fig_trend)
-    if "sentiment_intensity_trend" in report_config["charts"]:
+    if "sentiment_intensity_trend" in report_config["charts"] and 'fig_intensity' in locals():
         chart_images["sentiment_intensity_trend"] = convert_figure_to_image(fig_intensity)
     if "wordcloud" in report_config["charts"] and word_freq and wc_img:
         chart_images["wordcloud"] = wc_img
@@ -422,9 +369,6 @@ df_sentiment_summary = pd.DataFrame({
     '占比': [pos_pct, neu_pct, neg_pct]
 })
 
-df_intensity_daily = daily_intensity.copy()
-df_intensity_daily.columns = ['日期', '平均情感强度', '反馈数量']
-
 data_frames = {}
 if report_config["tables"]:
     if "sentiment_summary" in report_config["tables"]:
@@ -433,8 +377,6 @@ if report_config["tables"]:
         detail_export = feedback_df.copy()
         detail_export['日期'] = detail_export['日期'].dt.strftime('%Y-%m-%d')
         data_frames["sentiment_detail"] = detail_export[['反馈ID', '日期', '反馈类型', '情感类别', '情感强度', '反馈内容']]
-    if "sentiment_intensity_daily" in report_config["tables"]:
-        data_frames["sentiment_intensity_daily"] = df_intensity_daily
     if "keywords" in report_config["tables"] and word_freq:
         data_frames["keywords"] = pd.DataFrame(word_freq, columns=['关键词', '出现次数'])
 

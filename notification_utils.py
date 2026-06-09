@@ -714,11 +714,11 @@ def render_notification_popup():
                     st.info("没有未读通知")
                 else:
                     for notif in unread:
-                        _render_single_notification(notif, prefix="popup")
+                        _render_single_notification(notif, prefix="popup_unread")
             
             with tab_all:
                 for notif in all_notifs:
-                    _render_single_notification(notif, prefix="popup")
+                    _render_single_notification(notif, prefix="popup_all")
             
             col1, col2 = st.columns(2)
             with col1:
