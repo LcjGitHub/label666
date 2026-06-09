@@ -17,7 +17,7 @@ from data_utils import (
     filter_by_date,
     filter_by_feedback_type
 )
-from sidebar_config import SIDEBAR_CONFIG, render_sidebar, render_report_export_section
+from sidebar_config import SIDEBAR_CONFIG, render_sidebar, render_report_export_section, render_sidebar_notification_center
 from ticket_utils import (
     create_ticket_from_feedback,
     is_feedback_converted,
@@ -31,6 +31,12 @@ from report_utils import (
     convert_figure_to_image,
     get_available_items
 )
+from notification_utils import (
+    init_notification_system,
+    render_notification_icon,
+    run_monitoring_checks,
+    SEVERITY_LEVELS
+)
 
 st.set_page_config(
     page_title="用户反馈分析",
@@ -39,10 +45,19 @@ st.set_page_config(
 )
 
 init_session()
+init_notification_system()
 
 if not is_logged_in():
     render_login_page()
     st.stop()
+
+render_notification_icon()
+
+new_notifs = run_monitoring_checks()
+if new_notifs:
+    for notif in new_notifs:
+        sev_info = SEVERITY_LEVELS.get(notif["severity"], SEVERITY_LEVELS["info"])
+        st.toast(f"{sev_info['icon']} {notif['rule_name']}: {notif['message']}", icon=sev_info["icon"])
 
 can_export = has_permission("export_data")
 
@@ -51,6 +66,7 @@ feedback_types, counts, daily_df, satisfaction, satisfaction_counts = generate_f
 
 with st.sidebar:
     render_user_info_in_sidebar()
+    render_sidebar_notification_center()
     filters = render_sidebar(current_page="feedback")
 
 if filters.get("date_range") and len(filters["date_range"]) == 2:

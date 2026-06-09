@@ -2,6 +2,15 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from report_templates import get_available_items, REPORT_DEFAULT_TITLES
+from notification_utils import (
+    get_unread_count,
+    get_notifications,
+    mark_as_read,
+    mark_all_as_read,
+    delete_notification,
+    clear_all_notifications,
+    SEVERITY_LEVELS
+)
 
 SIDEBAR_CONFIG = {
     "page_title": "用户反馈分析",
@@ -238,3 +247,99 @@ def render_sidebar(current_page=None):
             st.markdown("---")
     
     return filters
+
+
+def render_sidebar_notification_center():
+    st.markdown("---")
+    unread_count = get_unread_count()
+    with st.expander(f"🔔 通知中心 ({unread_count} 未读)", expanded=(unread_count > 0)):
+        unread = get_notifications(limit=10, unread_only=True)
+        all_notifs = get_notifications(limit=10)
+        
+        if not all_notifs:
+            st.info("暂无通知")
+        else:
+            tab_unread, tab_all = st.tabs([f"未读 ({len(unread)})", "全部"])
+            
+            with tab_unread:
+                if not unread:
+                    st.info("没有未读通知")
+                else:
+                    for notif in unread:
+                        _render_sidebar_notification_item(notif)
+            
+            with tab_all:
+                for notif in all_notifs:
+                    _render_sidebar_notification_item(notif)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✓ 全部已读", use_container_width=True, key="sb_mark_all_read"):
+                    mark_all_as_read()
+                    st.rerun()
+            with col2:
+                if st.button("🗑️ 清空", use_container_width=True, key="sb_clear_all"):
+                    clear_all_notifications()
+                    st.rerun()
+            
+            st.markdown("---")
+            st.page_link("pages/通知设置.py", label="⚙️ 通知设置", use_container_width=True)
+
+
+def _render_sidebar_notification_item(notification):
+    severity = notification.get("severity", "info")
+    sev_info = SEVERITY_LEVELS.get(severity, SEVERITY_LEVELS["info"])
+    is_read = notification.get("read", False)
+    bg_opacity = "0.05" if is_read else "0.1"
+    
+    st.markdown(
+        f"""
+        <div style="
+            padding: 0.4rem 0.6rem;
+            margin-bottom: 0.4rem;
+            border-radius: 0.4rem;
+            background-color: {sev_info['color']}{bg_opacity};
+            border-left: 3px solid {sev_info['color']};
+            opacity: {0.6 if is_read else 1.0};
+        ">
+            <div style="font-weight: bold; font-size: 0.8rem;">
+                {sev_info['icon']} {notification['rule_name']}
+            </div>
+            <div style="font-size: 0.75rem; margin-top: 0.2rem;">
+                {notification['message']}
+            </div>
+            <div style="font-size: 0.65rem; color: #888; margin-top: 0.2rem;">
+                {notification['created_at']}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    col_read, col_del = st.columns([1, 1])
+    with col_read:
+        if not is_read:
+            if st.button("✓ 已读", key=f"sb_read_{notification['id']}", use_container_width=True):
+                mark_as_read(notification["id"])
+                st.rerun()
+    with col_del:
+        if st.button("🗑️", key=f"sb_del_{notification['id']}", use_container_width=True):
+            delete_notification(notification["id"])
+            st.rerun()
+    
+    if notification.get("details") and notification["details"]:
+        with st.expander("详情", expanded=False):
+            details = notification["details"]
+            if isinstance(details, dict):
+                for k, v in details.items():
+                    if isinstance(v, list):
+                        st.markdown(f"**{k}**:")
+                        for item in v:
+                            if isinstance(item, dict):
+                                st.json(item)
+                            else:
+                                st.markdown(f"- {item}")
+                    else:
+                        st.markdown(f"**{k}**: {v}")
+            else:
+                st.write(details)

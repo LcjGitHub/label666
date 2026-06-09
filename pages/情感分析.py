@@ -18,7 +18,13 @@ from data_utils import (
     extract_keywords,
     create_wordcloud
 )
-from sidebar_config import render_sidebar, render_report_export_section
+from sidebar_config import render_sidebar, render_report_export_section, render_sidebar_notification_center
+from notification_utils import (
+    init_notification_system,
+    render_notification_icon,
+    run_monitoring_checks,
+    SEVERITY_LEVELS
+)
 from report_utils import (
     create_pdf_report,
     create_excel_report,
@@ -34,10 +40,19 @@ st.set_page_config(
 )
 
 init_session()
+init_notification_system()
 
 if not is_logged_in():
     render_login_page()
     st.stop()
+
+render_notification_icon()
+
+new_notifs = run_monitoring_checks()
+if new_notifs:
+    for notif in new_notifs:
+        sev_info = SEVERITY_LEVELS.get(notif["severity"], SEVERITY_LEVELS["info"])
+        st.toast(f"{sev_info['icon']} {notif['rule_name']}: {notif['message']}", icon=sev_info["icon"])
 
 can_export = has_permission("export_data")
 
@@ -45,6 +60,7 @@ feedback_df = generate_mock_feedback_data()
 
 with st.sidebar:
     render_user_info_in_sidebar()
+    render_sidebar_notification_center()
     filters = render_sidebar(current_page="sentiment")
 
 if filters.get("date_range") and len(filters["date_range"]) == 2:

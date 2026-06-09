@@ -1,0 +1,593 @@
+import json
+import os
+import smtplib
+import uuid
+from datetime import datetime, timedelta
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.header import Header
+import pandas as pd
+import streamlit as st
+from data_utils import generate_mock_feedback_data
+
+
+NOTIFICATIONS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notifications.json")
+NOTIFICATION_RULES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "notification_rules.json")
+
+
+DEFAULT_ALERT_RULES = {
+    "feedback_volume": {
+        "enabled": True,
+        "name": "反馈数量预警",
+        "description": "当指定时间窗口内新增反馈数量超过阈值时触发预警",
+        "threshold": 20,
+        "time_window_hours": 24,
+        "severity": "warning",
+        "notify_channels": ["in_app"]
+    },
+    "urgent_bug": {
+        "enabled": True,
+        "name": "紧急Bug报告预警",
+        "description": "当检测到包含紧急关键词的Bug报告时立即触发预警",
+        "urgent_keywords": ["崩溃", "闪退", "黑屏", "无法登录", "数据丢失", "宕机", "严重", "紧急", "无法使用", "error", "bug"],
+        "severity": "critical",
+        "notify_channels": ["in_app", "email"]
+    },
+    "negative_sentiment": {
+        "enabled": False,
+        "name": "负面情感激增预警",
+        "description": "当负面情感反馈占比超过阈值时触发预警",
+        "threshold_percent": 40,
+        "time_window_hours": 24,
+        "severity": "warning",
+        "notify_channels": ["in_app"]
+    },
+    "pending_backlog": {
+        "enabled": False,
+        "name": "待处理积压预警",
+        "description": "当待处理反馈数量超过阈值时触发预警",
+        "threshold": 50,
+        "severity": "info",
+        "notify_channels": ["in_app"]
+    }
+}
+
+
+NOTIFICATION_CHANNELS = {
+    "in_app": {
+        "name": "站内消息",
+        "description": "在系统通知中心显示"
+    },
+    "email": {
+        "name": "邮件通知",
+        "description": "发送邮件到指定邮箱"
+    }
+}
+
+
+SEVERITY_LEVELS = {
+    "info": {"name": "信息", "color": "#636EFA", "icon": "ℹ️"},
+    "warning": {"name": "警告", "color": "#FFA15A", "icon": "⚠️"},
+    "critical": {"name": "紧急", "color": "#EF553B", "icon": "🚨"}
+}
+
+
+def init_notification_system():
+    if "notifications_initialized" not in st.session_state:
+        load_notification_rules()
+        load_notifications()
+        st.session_state.notifications_initialized = True
+
+
+def load_notification_rules():
+    if not os.path.exists(NOTIFICATION_RULES_FILE):
+        save_notification_rules(DEFAULT_ALERT_RULES)
+        return DEFAULT_ALERT_RULES
+    try:
+        with open(NOTIFICATION_RULES_FILE, "r", encoding="utf-8") as f:
+            rules = json.load(f)
+        for key, default in DEFAULT_ALERT_RULES.items():
+            if key not in rules:
+                rules[key] = default
+        return rules
+    except (json.JSONDecodeError, IOError):
+        return DEFAULT_ALERT_RULES
+
+
+def save_notification_rules(rules):
+    with open(NOTIFICATION_RULES_FILE, "w", encoding="utf-8") as f:
+        json.dump(rules, f, ensure_ascii=False, indent=2)
+
+
+def load_notifications():
+    if not os.path.exists(NOTIFICATIONS_FILE):
+        return []
+    try:
+        with open(NOTIFICATIONS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return []
+
+
+def save_notifications(notifications):
+    with open(NOTIFICATIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump(notifications, f, ensure_ascii=False, indent=2)
+
+
+def create_notification(rule_id, rule_name, severity, message, details=None, channels=None):
+    notifications = load_notifications()
+    notification = {
+        "id": f"NOTIF-{uuid.uuid4().hex[:10].upper()}",
+        "rule_id": rule_id,
+        "rule_name": rule_name,
+        "severity": severity,
+        "message": message,
+        "details": details or {},
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "read": False,
+        "channels": channels or ["in_app"]
+    }
+    notifications.insert(0, notification)
+    if len(notifications) > 500:
+        notifications = notifications[:500]
+    save_notifications(notifications)
+    
+    if "email" in notification["channels"]:
+        send_email_notification(notification)
+    
+    return notification
+
+
+def mark_as_read(notification_id):
+    notifications = load_notifications()
+    for n in notifications:
+        if n["id"] == notification_id:
+            n["read"] = True
+            break
+    save_notifications(notifications)
+
+
+def mark_all_as_read():
+    notifications = load_notifications()
+    for n in notifications:
+        n["read"] = True
+    save_notifications(notifications)
+
+
+def get_unread_count():
+    notifications = load_notifications()
+    return len([n for n in notifications if not n["read"]])
+
+
+def get_notifications(limit=50, unread_only=False):
+    notifications = load_notifications()
+    if unread_only:
+        notifications = [n for n in notifications if not n["read"]]
+    return notifications[:limit]
+
+
+def delete_notification(notification_id):
+    notifications = load_notifications()
+    notifications = [n for n in notifications if n["id"] != notification_id]
+    save_notifications(notifications)
+
+
+def clear_all_notifications():
+    save_notifications([])
+
+
+def check_feedback_volume_alert(rule):
+    if not rule.get("enabled", True):
+        return None
+    
+    threshold = rule.get("threshold", 20)
+    time_window = rule.get("time_window_hours", 24)
+    
+    feedback_df = generate_mock_feedback_data()
+    feedback_df["日期"] = pd.to_datetime(feedback_df["日期"])
+    
+    cutoff_time = datetime.now() - timedelta(hours=time_window)
+    recent_feedback = feedback_df[feedback_df["日期"] >= cutoff_time]
+    count = len(recent_feedback)
+    
+    if count >= threshold:
+        return {
+            "triggered": True,
+            "message": f"过去 {time_window} 小时内新增反馈 {count} 条，超过阈值 {threshold} 条",
+            "details": {
+                "count": count,
+                "threshold": threshold,
+                "time_window_hours": time_window
+            }
+        }
+    return None
+
+
+def check_urgent_bug_alert(rule):
+    if not rule.get("enabled", True):
+        return None
+    
+    keywords = [kw.lower() for kw in rule.get("urgent_keywords", [])]
+    
+    feedback_df = generate_mock_feedback_data()
+    feedback_df["日期"] = pd.to_datetime(feedback_df["日期"])
+    
+    cutoff_time = datetime.now() - timedelta(hours=1)
+    recent_feedback = feedback_df[
+        (feedback_df["日期"] >= cutoff_time) & 
+        (feedback_df["反馈类型"] == "Bug 报告")
+    ]
+    
+    urgent_bugs = []
+    for _, row in recent_feedback.iterrows():
+        content = str(row["反馈内容"]).lower()
+        if any(kw in content for kw in keywords):
+            urgent_bugs.append({
+                "id": row["反馈ID"],
+                "content": row["反馈内容"],
+                "date": row["日期"].strftime("%Y-%m-%d %H:%M:%S")
+            })
+    
+    last_check = st.session_state.get("last_urgent_bug_check", None)
+    if last_check:
+        last_check_dt = pd.to_datetime(last_check)
+        urgent_bugs = [
+            b for b in urgent_bugs 
+            if pd.to_datetime(b["date"]) > last_check_dt
+        ]
+    
+    st.session_state.last_urgent_bug_check = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    if urgent_bugs:
+        return {
+            "triggered": True,
+            "message": f"检测到 {len(urgent_bugs)} 条紧急Bug报告需要立即处理",
+            "details": {
+                "urgent_bugs": urgent_bugs,
+                "count": len(urgent_bugs)
+            }
+        }
+    return None
+
+
+def check_negative_sentiment_alert(rule):
+    if not rule.get("enabled", False):
+        return None
+    
+    threshold = rule.get("threshold_percent", 40)
+    time_window = rule.get("time_window_hours", 24)
+    
+    feedback_df = generate_mock_feedback_data()
+    feedback_df["日期"] = pd.to_datetime(feedback_df["日期"])
+    
+    cutoff_time = datetime.now() - timedelta(hours=time_window)
+    recent_feedback = feedback_df[feedback_df["日期"] >= cutoff_time]
+    
+    if len(recent_feedback) == 0:
+        return None
+    
+    negative_count = len(recent_feedback[recent_feedback["情感类别"] == "负面"])
+    negative_percent = (negative_count / len(recent_feedback)) * 100
+    
+    if negative_percent >= threshold:
+        return {
+            "triggered": True,
+            "message": f"过去 {time_window} 小时负面情感占比 {negative_percent:.1f}%，超过阈值 {threshold}%",
+            "details": {
+                "negative_percent": round(negative_percent, 1),
+                "threshold_percent": threshold,
+                "negative_count": negative_count,
+                "total_count": len(recent_feedback)
+            }
+        }
+    return None
+
+
+def check_pending_backlog_alert(rule):
+    if not rule.get("enabled", False):
+        return None
+    
+    threshold = rule.get("threshold", 50)
+    
+    feedback_df = generate_mock_feedback_data()
+    total_count = len(feedback_df)
+    pending_count = int(total_count * 0.21)
+    
+    if pending_count >= threshold:
+        return {
+            "triggered": True,
+            "message": f"当前待处理反馈 {pending_count} 条，超过阈值 {threshold} 条",
+            "details": {
+                "pending_count": pending_count,
+                "threshold": threshold
+            }
+        }
+    return None
+
+
+def run_monitoring_checks():
+    rules = load_notification_rules()
+    new_notifications = []
+    
+    alert_checkers = {
+        "feedback_volume": check_feedback_volume_alert,
+        "urgent_bug": check_urgent_bug_alert,
+        "negative_sentiment": check_negative_sentiment_alert,
+        "pending_backlog": check_pending_backlog_alert
+    }
+    
+    last_run = st.session_state.get("last_monitoring_run")
+    now = datetime.now()
+    
+    if last_run:
+        last_run_dt = pd.to_datetime(last_run)
+        if (now - last_run_dt).total_seconds() < 30:
+            return new_notifications
+    
+    st.session_state.last_monitoring_run = now.strftime("%Y-%m-%d %H:%M:%S")
+    
+    for rule_id, rule in rules.items():
+        checker = alert_checkers.get(rule_id)
+        if checker:
+            result = checker(rule)
+            if result and result.get("triggered"):
+                dedup_key = f"{rule_id}_{result['message']}"
+                last_notifs = get_notifications(limit=10)
+                is_duplicate = any(
+                    n.get("rule_id") == rule_id and 
+                    (datetime.now() - pd.to_datetime(n["created_at"])).total_seconds() < 3600
+                    for n in last_notifs
+                )
+                
+                if not is_duplicate:
+                    severity = rule.get("severity", "warning")
+                    channels = rule.get("notify_channels", ["in_app"])
+                    notification = create_notification(
+                        rule_id=rule_id,
+                        rule_name=rule.get("name", rule_id),
+                        severity=severity,
+                        message=result["message"],
+                        details=result.get("details", {}),
+                        channels=channels
+                    )
+                    new_notifications.append(notification)
+    
+    return new_notifications
+
+
+def get_email_config():
+    return st.secrets.get("email", {
+        "smtp_server": "smtp.example.com",
+        "smtp_port": 587,
+        "smtp_user": "noreply@example.com",
+        "smtp_password": "",
+        "sender_name": "反馈分析系统",
+        "default_recipients": ["admin@example.com"]
+    })
+
+
+def send_email_notification(notification):
+    try:
+        config = get_email_config()
+        
+        if not config.get("smtp_password"):
+            return False
+        
+        msg = MIMEMultipart()
+        msg["From"] = Header(f"{config['sender_name']} <{config['smtp_user']}>", "utf-8")
+        msg["To"] = ", ".join(config["default_recipients"])
+        
+        severity_info = SEVERITY_LEVELS.get(notification["severity"], SEVERITY_LEVELS["info"])
+        subject = f"{severity_info['icon']} [{severity_info['name']}] {notification['rule_name']}"
+        msg["Subject"] = Header(subject, "utf-8")
+        
+        body = f"""
+        <html>
+        <body>
+            <h2 style="color: {severity_info['color']};">{severity_info['icon']} {notification['rule_name']}</h2>
+            <p><strong>通知时间：</strong>{notification['created_at']}</p>
+            <p><strong>消息内容：</strong>{notification['message']}</p>
+            <hr>
+            <p style="color: #888; font-size: 12px;">此邮件由反馈分析系统自动发送，请勿直接回复。</p>
+        </body>
+        </html>
+        """
+        msg.attach(MIMEText(body, "html", "utf-8"))
+        
+        server = smtplib.SMTP(config["smtp_server"], config["smtp_port"])
+        server.starttls()
+        server.login(config["smtp_user"], config["smtp_password"])
+        server.sendmail(config["smtp_user"], config["default_recipients"], msg.as_string())
+        server.quit()
+        
+        return True
+    except Exception as e:
+        st.session_state["email_error"] = str(e)
+        return False
+
+
+def render_notification_icon():
+    unread_count = get_unread_count()
+    
+    icon_html = f"""
+    <style>
+    .notification-icon-container {{
+        position: fixed;
+        top: 0.75rem;
+        right: 4rem;
+        z-index: 999;
+        display: flex;
+        align-items: center;
+    }}
+    .notification-bell {{
+        font-size: 1.5rem;
+        cursor: pointer;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.5rem;
+        transition: all 0.2s;
+    }}
+    .notification-bell:hover {{
+        background-color: rgba(128, 128, 128, 0.1);
+    }}
+    .notification-badge {{
+        position: absolute;
+        top: -0.25rem;
+        right: -0.25rem;
+        background-color: #ef4444;
+        color: white;
+        border-radius: 9999px;
+        font-size: 0.7rem;
+        font-weight: bold;
+        padding: 0.1rem 0.4rem;
+        min-width: 1.2rem;
+        text-align: center;
+    }}
+    </style>
+    <div class="notification-icon-container">
+        <div class="notification-bell">🔔</div>
+        {f'<div class="notification-badge">{unread_count}</div>' if unread_count > 0 else ''}
+    </div>
+    """
+    st.markdown(icon_html, unsafe_allow_html=True)
+    
+    return unread_count
+
+
+def render_notification_popup():
+    if "show_notification_popup" not in st.session_state:
+        st.session_state.show_notification_popup = False
+    
+    if st.session_state.show_notification_popup:
+        unread = get_notifications(limit=10, unread_only=True)
+        all_notifs = get_notifications(limit=10)
+        
+        with st.sidebar:
+            st.markdown("---")
+            st.markdown("### 🔔 通知中心")
+            
+            if not all_notifs:
+                st.info("暂无通知")
+            else:
+                tab_unread, tab_all = st.tabs([f"未读 ({len(unread)})", "全部"])
+                
+                with tab_unread:
+                    if not unread:
+                        st.info("没有未读通知")
+                    else:
+                        for notif in unread:
+                            _render_single_notification(notif)
+                
+                with tab_all:
+                    for notif in all_notifs:
+                        _render_single_notification(notif)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✓ 全部已读", use_container_width=True, key="mark_all_read"):
+                        mark_all_as_read()
+                        st.rerun()
+                with col2:
+                    if st.button("🗑️ 清空全部", use_container_width=True, key="clear_all_notifs"):
+                        clear_all_notifications()
+                        st.rerun()
+
+
+def _render_single_notification(notification):
+    severity = notification.get("severity", "info")
+    sev_info = SEVERITY_LEVELS.get(severity, SEVERITY_LEVELS["info"])
+    is_read = notification.get("read", False)
+    
+    bg_opacity = "0.05" if is_read else "0.1"
+    
+    with st.container():
+        st.markdown(
+            f"""
+            <div style="
+                padding: 0.5rem 0.75rem;
+                margin-bottom: 0.5rem;
+                border-radius: 0.5rem;
+                background-color: {sev_info['color']}{bg_opacity};
+                border-left: 3px solid {sev_info['color']};
+                opacity: {0.6 if is_read else 1.0};
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                    <div>
+                        <div style="font-weight: bold; font-size: 0.9rem;">
+                            {sev_info['icon']} {notification['rule_name']}
+                        </div>
+                        <div style="font-size: 0.8rem; margin-top: 0.25rem;">
+                            {notification['message']}
+                        </div>
+                        <div style="font-size: 0.7rem; color: #888; margin-top: 0.25rem;">
+                            {notification['created_at']}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        
+        col_read, col_delete = st.columns([1, 1])
+        with col_read:
+            if not is_read:
+                if st.button("✓ 已读", key=f"read_{notification['id']}", use_container_width=True):
+                    mark_as_read(notification["id"])
+                    st.rerun()
+        with col_delete:
+            if st.button("🗑️ 删除", key=f"del_{notification['id']}", use_container_width=True):
+                delete_notification(notification["id"])
+                st.rerun()
+        
+        if notification.get("details") and notification["details"]:
+            with st.expander("📋 查看详情", expanded=False):
+                details = notification["details"]
+                if isinstance(details, dict):
+                    for k, v in details.items():
+                        if isinstance(v, list):
+                            st.markdown(f"**{k}**:")
+                            for item in v:
+                                if isinstance(item, dict):
+                                    st.json(item)
+                                else:
+                                    st.markdown(f"- {item}")
+                        else:
+                            st.markdown(f"**{k}**: {v}")
+                else:
+                    st.write(details)
+        
+        st.markdown("---")
+
+
+def render_notification_history():
+    st.markdown("### 📜 通知历史记录")
+    
+    notifications = load_notifications()
+    
+    if not notifications:
+        st.info("暂无通知历史记录")
+        return
+    
+    col_stats1, col_stats2, col_stats3 = st.columns(3)
+    with col_stats1:
+        st.metric("总通知数", len(notifications))
+    with col_stats2:
+        unread = len([n for n in notifications if not n["read"]])
+        st.metric("未读通知", unread)
+    with col_stats3:
+        critical = len([n for n in notifications if n.get("severity") == "critical"])
+        st.metric("紧急通知", critical)
+    
+    st.markdown("---")
+    
+    severity_filter = st.multiselect(
+        "按严重程度筛选",
+        options=list(SEVERITY_LEVELS.keys()),
+        format_func=lambda x: f"{SEVERITY_LEVELS[x]['icon']} {SEVERITY_LEVELS[x]['name']}",
+        default=list(SEVERITY_LEVELS.keys())
+    )
+    
+    filtered = [n for n in notifications if n.get("severity", "info") in severity_filter]
+    
+    for notif in filtered:
+        _render_single_notification(notif)
