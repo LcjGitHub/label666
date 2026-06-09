@@ -126,3 +126,6 @@ tmp/
 *.xls
 *.xlsm
 *.xlsb
+
+# Uploaded attachments
+attachments/

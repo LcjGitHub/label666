@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import os
 from datetime import datetime, timedelta
 from auth_utils import (
     init_session,
@@ -37,7 +38,10 @@ from ticket_utils import (
     TICKET_PRIORITIES,
     DEFAULT_ASSIGNEES,
     STATUS_COLOR_MAP,
-    PRIORITY_COLOR_MAP
+    PRIORITY_COLOR_MAP,
+    get_attachment_path,
+    get_ticket_attachments,
+    init_attachments_dir
 )
 from report_utils import (
     create_pdf_report,
@@ -54,6 +58,7 @@ st.set_page_config(
 
 init_session()
 init_notification_system()
+init_attachments_dir()
 
 if not is_logged_in():
     render_login_page()
@@ -541,6 +546,36 @@ def render_ticket_detail():
                 st.rerun()
     else:
         st.info("🔒 您没有「管理工单」权限，无法添加备注。")
+
+    st.markdown("---")
+    st.subheader("📎 附件")
+
+    attachments = get_ticket_attachments(ticket)
+    if attachments:
+        for i, att in enumerate(attachments):
+            file_path = get_attachment_path(ticket_id, att['stored_name'])
+            if os.path.exists(file_path):
+                with open(file_path, 'rb') as f:
+                    file_bytes = f.read()
+                file_icon = "🖼️" if att['file_type'] in ['PNG', 'JPG', 'JPEG'] else "📄"
+                col_info, col_download = st.columns([4, 1])
+                with col_info:
+                    st.markdown(f"{file_icon} **{att['original_name']}**")
+                    st.caption(f"类型: {att['file_type']} | 大小: {att['file_size']}MB | 上传时间: {att['uploaded_at']}")
+                with col_download:
+                    st.download_button(
+                        label="📥 下载",
+                        data=file_bytes,
+                        file_name=att['original_name'],
+                        key=f"ticket_download_{ticket_id}_{att['attachment_id']}",
+                        use_container_width=True
+                    )
+                if i < len(attachments) - 1:
+                    st.markdown("---")
+            else:
+                st.warning(f"⚠️ 附件 {att['original_name']} 文件不存在")
+    else:
+        st.info("暂无附件")
 
     st.markdown("---")
     st.subheader("💬 工单评论")

@@ -2,6 +2,7 @@ import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+import os
 from datetime import datetime, timedelta
 from auth_utils import (
     init_session,
@@ -23,7 +24,13 @@ from ticket_utils import (
     is_feedback_converted,
     get_ticket_by_feedback,
     TICKET_PRIORITIES,
-    DEFAULT_ASSIGNEES
+    DEFAULT_ASSIGNEES,
+    MAX_ATTACHMENTS_PER_TICKET,
+    MAX_FILE_SIZE_MB,
+    ALLOWED_EXTENSIONS,
+    get_attachment_path,
+    get_ticket_attachments,
+    init_attachments_dir
 )
 from report_utils import (
     create_pdf_report,
@@ -48,6 +55,7 @@ st.set_page_config(
 
 init_session()
 init_notification_system()
+init_attachments_dir()
 
 if not is_logged_in():
     render_login_page()
@@ -433,6 +441,31 @@ for idx, row in display_df.iterrows():
                     due_date = st.date_input("截止日期", value=default_due)
                     notes = st.text_area("备注信息", height=80)
                 
+                allowed_types_str = ", ".join(sorted([ext.upper().lstrip(".") for ext in ALLOWED_EXTENSIONS]))
+                uploaded_files = st.file_uploader(
+                    f"📎 上传附件（最多 {MAX_ATTACHMENTS_PER_TICKET} 个，支持 {allowed_types_str}，单个不超过 {MAX_FILE_SIZE_MB}MB）",
+                    type=[ext.lstrip(".") for ext in ALLOWED_EXTENSIONS],
+                    accept_multiple_files=True,
+                    key=f"uploader_{fb_id}"
+                )
+                
+                if uploaded_files:
+                    if len(uploaded_files) > MAX_ATTACHMENTS_PER_TICKET:
+                        st.error(f"❌ 最多只能上传 {MAX_ATTACHMENTS_PER_TICKET} 个附件，当前已选择 {len(uploaded_files)} 个")
+                    else:
+                        valid_files = []
+                        for uf in uploaded_files:
+                            file_size_mb = len(uf.getvalue()) / (1024 * 1024)
+                            if file_size_mb > MAX_FILE_SIZE_MB:
+                                st.error(f"❌ 文件 {uf.name} 大小为 {file_size_mb:.2f}MB，超过 {MAX_FILE_SIZE_MB}MB 限制")
+                            else:
+                                valid_files.append(uf)
+                        if valid_files:
+                            st.success(f"✅ 已选择 {len(valid_files)} 个有效附件")
+                            for vf in valid_files:
+                                size_mb = len(vf.getvalue()) / (1024 * 1024)
+                                st.caption(f"  - {vf.name} ({size_mb:.2f}MB)")
+                
                 col_submit, col_cancel = st.columns(2)
                 with col_submit:
                     submitted = st.form_submit_button("✅ 创建工单", use_container_width=True)
@@ -442,17 +475,36 @@ for idx, row in display_df.iterrows():
                         st.rerun()
                 
                 if submitted:
-                    ticket = create_ticket_from_feedback(
-                        feedback_id=fb_id,
-                        feedback_content=row['反馈内容'],
-                        feedback_type=row['反馈类型'],
-                        assignee=assignee,
-                        priority=priority,
-                        due_date=due_date.strftime("%Y-%m-%d"),
-                        notes=notes
-                    )
-                    st.success(f"工单 {ticket['ticket_id']} 创建成功！前往 [工单管理](/工单管理) 查看")
-                    st.session_state[f"show_form_{fb_id}"] = False
+                    attachments = []
+                    if uploaded_files:
+                        if len(uploaded_files) > MAX_ATTACHMENTS_PER_TICKET:
+                            st.error(f"❌ 最多只能上传 {MAX_ATTACHMENTS_PER_TICKET} 个附件")
+                            st.stop()
+                        for uf in uploaded_files:
+                            file_size_mb = len(uf.getvalue()) / (1024 * 1024)
+                            if file_size_mb > MAX_FILE_SIZE_MB:
+                                st.error(f"❌ 文件 {uf.name} 超过大小限制")
+                                st.stop()
+                            attachments.append({
+                                "file_obj": uf,
+                                "original_name": uf.name
+                            })
+                    
+                    try:
+                        ticket = create_ticket_from_feedback(
+                            feedback_id=fb_id,
+                            feedback_content=row['反馈内容'],
+                            feedback_type=row['反馈类型'],
+                            assignee=assignee,
+                            priority=priority,
+                            due_date=due_date.strftime("%Y-%m-%d"),
+                            notes=notes,
+                            attachments=attachments
+                        )
+                        st.success(f"工单 {ticket['ticket_id']} 创建成功！前往 [工单管理](/工单管理) 查看")
+                        st.session_state[f"show_form_{fb_id}"] = False
+                    except ValueError as e:
+                        st.error(f"❌ 附件上传失败: {str(e)}")
         
         if st.session_state.get(f"show_detail_{fb_id}", False) and ticket:
             with st.expander(f"工单详情 - {ticket['ticket_id']}", expanded=True):
@@ -468,6 +520,29 @@ for idx, row in display_df.iterrows():
                 if ticket.get('notes'):
                     st.markdown("**备注信息**:")
                     st.info(ticket['notes'])
+                
+                attachments = get_ticket_attachments(ticket)
+                if attachments:
+                    st.markdown("---")
+                    st.markdown(f"**📎 附件 ({len(attachments)})**:")
+                    for att in attachments:
+                        file_path = get_attachment_path(ticket['ticket_id'], att['stored_name'])
+                        if os.path.exists(file_path):
+                            with open(file_path, 'rb') as f:
+                                file_bytes = f.read()
+                            file_icon = "🖼️" if att['file_type'] in ['PNG', 'JPG', 'JPEG'] else "📄"
+                            st.download_button(
+                                label=f"{file_icon} {att['original_name']} ({att['file_size']}MB)",
+                                data=file_bytes,
+                                file_name=att['original_name'],
+                                key=f"download_{fb_id}_{att['attachment_id']}",
+                                use_container_width=True
+                            )
+                        else:
+                            st.warning(f"⚠️ 附件 {att['original_name']} 文件不存在")
+                else:
+                    st.caption("📎 无附件")
+                
                 if st.button("关闭详情", key=f"close_detail_{fb_id}"):
                     st.session_state[f"show_detail_{fb_id}"] = False
                     st.rerun()

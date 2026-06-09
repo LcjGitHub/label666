@@ -1,14 +1,79 @@
 import json
 import os
 import uuid
+import shutil
 from datetime import datetime, timedelta
 import pandas as pd
 
 TICKETS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tickets.json")
+ATTACHMENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "attachments")
+
+ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".pdf"}
+MAX_FILE_SIZE_MB = 5
+MAX_ATTACHMENTS_PER_TICKET = 3
 
 TICKET_STATUSES = ["待处理", "处理中", "已解决", "已关闭"]
 TICKET_PRIORITIES = ["低", "中", "高", "紧急"]
 DEFAULT_ASSIGNEES = ["张三", "李四", "王五", "赵六", "未分配"]
+
+
+def init_attachments_dir():
+    if not os.path.exists(ATTACHMENTS_DIR):
+        os.makedirs(ATTACHMENTS_DIR, exist_ok=True)
+
+
+def is_allowed_file(filename):
+    ext = os.path.splitext(filename)[1].lower()
+    return ext in ALLOWED_EXTENSIONS
+
+
+def get_file_extension(filename):
+    return os.path.splitext(filename)[1].lower()
+
+
+def save_attachment(file_obj, original_filename, ticket_id):
+    init_attachments_dir()
+
+    if not is_allowed_file(original_filename):
+        raise ValueError(f"不支持的文件类型，仅支持: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
+
+    file_size_mb = len(file_obj.getvalue()) / (1024 * 1024) if hasattr(file_obj, 'getvalue') else os.path.getsize(file_obj) / (1024 * 1024)
+    if file_size_mb > MAX_FILE_SIZE_MB:
+        raise ValueError(f"文件大小超过限制，最大允许 {MAX_FILE_SIZE_MB}MB")
+
+    ticket_dir = os.path.join(ATTACHMENTS_DIR, ticket_id)
+    os.makedirs(ticket_dir, exist_ok=True)
+
+    ext = get_file_extension(original_filename)
+    safe_name = f"{uuid.uuid4().hex[:8]}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}"
+    file_path = os.path.join(ticket_dir, safe_name)
+
+    if hasattr(file_obj, 'seek'):
+        file_obj.seek(0)
+    with open(file_path, 'wb') as f:
+        if hasattr(file_obj, 'read'):
+            f.write(file_obj.read())
+        else:
+            with open(file_obj, 'rb') as src:
+                f.write(src.read())
+
+    return {
+        "attachment_id": str(uuid.uuid4())[:8],
+        "original_name": original_filename,
+        "stored_name": safe_name,
+        "file_path": file_path,
+        "file_size": round(file_size_mb, 2),
+        "file_type": ext.lstrip(".").upper(),
+        "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+
+def get_attachment_path(ticket_id, stored_name):
+    return os.path.join(ATTACHMENTS_DIR, ticket_id, stored_name)
+
+
+def get_ticket_attachments(ticket):
+    return ticket.get("attachments", [])
 
 STATUS_COLOR_MAP = {
     "待处理": "#FFA15A",
@@ -53,12 +118,33 @@ def generate_ticket_id():
 
 def create_ticket_from_feedback(feedback_id, feedback_content, feedback_type,
                                 assignee="未分配", priority="中",
-                                due_date=None, notes=""):
+                                due_date=None, notes="", attachments=None):
     if due_date is None:
         due_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
 
+    if attachments is None:
+        attachments = []
+
+    ticket_id = generate_ticket_id()
+    saved_attachments = []
+
+    for att_info in attachments:
+        try:
+            saved = save_attachment(
+                att_info["file_obj"],
+                att_info["original_name"],
+                ticket_id
+            )
+            saved_attachments.append(saved)
+        except ValueError:
+            raise
+
+    history_details = f"从反馈创建工单，类型: {feedback_type}"
+    if saved_attachments:
+        history_details += f"，附带 {len(saved_attachments)} 个附件"
+
     ticket = {
-        "ticket_id": generate_ticket_id(),
+        "ticket_id": ticket_id,
         "feedback_id": feedback_id,
         "feedback_content": feedback_content,
         "feedback_type": feedback_type,
@@ -70,12 +156,13 @@ def create_ticket_from_feedback(feedback_id, feedback_content, feedback_type,
         "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "due_date": due_date,
         "notes": notes,
+        "attachments": saved_attachments,
         "comments": [],
         "history": [
             {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "action": "创建工单",
-                "details": f"从反馈创建工单，类型: {feedback_type}"
+                "details": history_details
             }
         ]
     }
