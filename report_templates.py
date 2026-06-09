@@ -289,6 +289,7 @@ AVAILABLE_CHARTS = {
     'sentiment': {
         'sentiment_pie': '情感占比分布饼图',
         'sentiment_trend': '情感变化趋势图',
+        'sentiment_intensity_trend': '情感强度变化趋势图',
         'wordcloud': '反馈关键词词云'
     },
     'tickets': {
@@ -306,6 +307,7 @@ AVAILABLE_DATA_TABLES = {
     'sentiment': {
         'sentiment_summary': '情感分析摘要表',
         'sentiment_detail': '情感分析详细数据表',
+        'sentiment_intensity_daily': '每日情感强度统计表',
         'keywords': '关键词统计表'
     },
     'tickets': {
