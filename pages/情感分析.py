@@ -10,7 +10,14 @@ from data_utils import (
     extract_keywords,
     create_wordcloud
 )
-from sidebar_config import render_sidebar
+from sidebar_config import render_sidebar, render_report_export_section
+from report_utils import (
+    create_pdf_report,
+    create_excel_report,
+    convert_figure_to_image,
+    save_pil_image_to_bytes,
+    get_available_items
+)
 
 st.set_page_config(
     page_title="情感分析",
@@ -33,6 +40,17 @@ if filters.get("sentiment_type"):
     feedback_df = filter_by_sentiment(feedback_df, "情感类别", filters["sentiment_type"])
 
 st.title("💭 情感分析面板")
+
+report_config = render_report_export_section("sentiment")
+
+if "show_report_preview_sentiment" not in st.session_state:
+    st.session_state.show_report_preview_sentiment = False
+
+col_preview, col_export_pdf, col_export_excel = st.columns([1, 1, 1])
+with col_preview:
+    if st.button("👁️ 报告预览", use_container_width=True, type="secondary"):
+        st.session_state.show_report_preview_sentiment = not st.session_state.show_report_preview_sentiment
+
 st.markdown("---")
 
 total_count = len(feedback_df)
@@ -43,6 +61,13 @@ neg_count = len(feedback_df[feedback_df['情感类别'] == '负面'])
 pos_pct = f"{pos_count/total_count*100:.1f}%" if total_count > 0 else "0%"
 neu_pct = f"{neu_count/total_count*100:.1f}%" if total_count > 0 else "0%"
 neg_pct = f"{neg_count/total_count*100:.1f}%" if total_count > 0 else "0%"
+
+key_metrics = [
+    {"label": "总反馈数", "value": total_count, "delta": "样本总数"},
+    {"label": "正面反馈", "value": f"{pos_count}", "delta": pos_pct},
+    {"label": "中性反馈", "value": f"{neu_count}", "delta": neu_pct},
+    {"label": "负面反馈", "value": f"{neg_count}", "delta": neg_pct}
+]
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -200,8 +225,9 @@ sentiment_emoji = {
 }
 display_df['情感类别'] = display_df['情感类别'].map(sentiment_emoji)
 
+sentiment_display_df = display_df.copy()
 st.dataframe(
-    display_df[['日期', '反馈类型', '情感类别', '情感强度', '反馈内容']],
+    sentiment_display_df[['日期', '反馈类型', '情感类别', '情感强度', '反馈内容']],
     use_container_width=True,
     hide_index=True,
     column_config={
@@ -211,3 +237,107 @@ st.dataframe(
         )
     }
 )
+
+chart_images = {}
+if report_config["charts"]:
+    if "sentiment_pie" in report_config["charts"]:
+        chart_images["sentiment_pie"] = convert_figure_to_image(fig_pie)
+    if "sentiment_trend" in report_config["charts"]:
+        chart_images["sentiment_trend"] = convert_figure_to_image(fig_trend)
+    if "wordcloud" in report_config["charts"] and word_freq and wc_img:
+        chart_images["wordcloud"] = wc_img
+
+df_sentiment_summary = pd.DataFrame({
+    '情感类别': ['正面', '中性', '负面'],
+    '数量': [pos_count, neu_count, neg_count],
+    '占比': [pos_pct, neu_pct, neg_pct]
+})
+
+data_frames = {}
+if report_config["tables"]:
+    if "sentiment_summary" in report_config["tables"]:
+        data_frames["sentiment_summary"] = df_sentiment_summary
+    if "sentiment_detail" in report_config["tables"]:
+        detail_export = feedback_df.copy()
+        detail_export['日期'] = detail_export['日期'].dt.strftime('%Y-%m-%d')
+        data_frames["sentiment_detail"] = detail_export[['反馈ID', '日期', '反馈类型', '情感类别', '情感强度', '反馈内容']]
+    if "keywords" in report_config["tables"] and word_freq:
+        data_frames["keywords"] = pd.DataFrame(word_freq, columns=['关键词', '出现次数'])
+
+if st.session_state.show_report_preview_sentiment:
+    st.markdown("---")
+    st.subheader("📄 报告预览")
+    
+    with st.container():
+        col_pdf, col_excel = st.columns(2)
+        with col_pdf:
+            if st.button("📥 导出 PDF", use_container_width=True, type="primary", key="sentiment_pdf_btn"):
+                pdf_buffer = create_pdf_report(
+                    report_title=report_config["title"],
+                    report_date=report_config["date"],
+                    report_notes=report_config["notes"],
+                    page_type="sentiment",
+                    selected_charts=report_config["charts"],
+                    selected_tables=report_config["tables"],
+                    chart_images=chart_images,
+                    data_frames=data_frames,
+                    key_metrics=key_metrics
+                )
+                st.download_button(
+                    label="⬇️ 下载 PDF 报告",
+                    data=pdf_buffer,
+                    file_name=f"{report_config['title']}_{report_config['date']}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary",
+                    key="sentiment_pdf_download"
+                )
+        
+        with col_excel:
+            if st.button("📊 导出 Excel", use_container_width=True, type="primary", key="sentiment_excel_btn"):
+                excel_buffer = create_excel_report(
+                    report_title=report_config["title"],
+                    report_date=report_config["date"],
+                    report_notes=report_config["notes"],
+                    page_type="sentiment",
+                    selected_charts=report_config["charts"],
+                    selected_tables=report_config["tables"],
+                    chart_images=chart_images,
+                    data_frames=data_frames,
+                    key_metrics=key_metrics
+                )
+                st.download_button(
+                    label="⬇️ 下载 Excel 报告",
+                    data=excel_buffer,
+                    file_name=f"{report_config['title']}_{report_config['date']}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    type="primary",
+                    key="sentiment_excel_download"
+                )
+        
+        st.markdown("---")
+        st.markdown("### 报告基本信息")
+        st.markdown(f"- **报告标题**: {report_config['title']}")
+        st.markdown(f"- **报告日期**: {report_config['date']}")
+        if report_config["notes"]:
+            st.markdown(f"- **备注信息**: {report_config['notes']}")
+        
+        st.markdown("---")
+        st.markdown("### 关键指标摘要")
+        for metric in key_metrics:
+            st.markdown(f"- **{metric['label']}**: {metric['value']} ({metric['delta']})")
+        
+        if report_config["charts"]:
+            st.markdown("---")
+            st.markdown("### 选中的图表")
+            chart_names, _ = get_available_items("sentiment")
+            for c in report_config["charts"]:
+                st.markdown(f"- ✅ {chart_names.get(c, c)}")
+        
+        if report_config["tables"]:
+            st.markdown("---")
+            st.markdown("### 选中的数据表格")
+            _, table_names = get_available_items("sentiment")
+            for t in report_config["tables"]:
+                st.markdown(f"- ✅ {table_names.get(t, t)}")

@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
+from report_utils import get_available_items
 
 SIDEBAR_CONFIG = {
     "page_title": "用户反馈分析",
@@ -97,6 +99,18 @@ SIDEBAR_CONFIG = {
             ]
         },
         {
+            "id": "report_export",
+            "title": "📤 报告导出",
+            "expanded": False,
+            "controls": [
+                {
+                    "id": "report_tip",
+                    "type": "info",
+                    "content": "点击页面顶部的「报告导出」按钮进行详细配置"
+                }
+            ]
+        },
+        {
             "id": "tips",
             "title": None,
             "expanded": True,
@@ -110,6 +124,73 @@ SIDEBAR_CONFIG = {
         }
     ]
 }
+
+
+REPORT_DEFAULT_TITLES = {
+    "feedback": "用户反馈分析报告",
+    "sentiment": "情感分析报告",
+    "tickets": "工单统计报告"
+}
+
+
+def render_report_export_section(page_type):
+    charts, tables = get_available_items(page_type)
+    
+    with st.expander("📤 报告导出配置", expanded=False):
+        st.markdown("#### 报告基本信息")
+        
+        default_title = REPORT_DEFAULT_TITLES.get(page_type, "分析报告")
+        report_title = st.text_input(
+            "报告标题",
+            value=st.session_state.get(f"report_title_{page_type}", default_title),
+            help="设置导出报告的标题"
+        )
+        st.session_state[f"report_title_{page_type}"] = report_title
+        
+        report_date = st.date_input(
+            "报告日期",
+            value=st.session_state.get(f"report_date_{page_type}", datetime.now().date()),
+            help="选择报告生成日期"
+        )
+        st.session_state[f"report_date_{page_type}"] = report_date
+        
+        report_notes = st.text_area(
+            "备注信息",
+            value=st.session_state.get(f"report_notes_{page_type}", ""),
+            height=80,
+            help="添加报告备注信息（可选）"
+        )
+        st.session_state[f"report_notes_{page_type}"] = report_notes
+        
+        st.markdown("---")
+        st.markdown("#### 选择报告内容")
+        
+        st.markdown("**📊 包含图表**")
+        selected_charts = []
+        for chart_id, chart_name in charts.items():
+            key = f"report_chart_{page_type}_{chart_id}"
+            if key not in st.session_state:
+                st.session_state[key] = True
+            if st.checkbox(chart_name, value=st.session_state[key], key=key):
+                selected_charts.append(chart_id)
+        
+        st.markdown("**📋 包含数据表格**")
+        selected_tables = []
+        for table_id, table_name in tables.items():
+            key = f"report_table_{page_type}_{table_id}"
+            if key not in st.session_state:
+                st.session_state[key] = True
+            if st.checkbox(table_name, value=st.session_state[key], key=key):
+                selected_tables.append(table_id)
+        
+        return {
+            "title": report_title,
+            "date": report_date.strftime("%Y-%m-%d"),
+            "notes": report_notes,
+            "charts": selected_charts,
+            "tables": selected_tables
+        }
+
 
 def get_date_range_default():
     dates = pd.date_range(start="2024-01-01", periods=30, freq="D")

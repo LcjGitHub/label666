@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 from datetime import datetime, timedelta
-from sidebar_config import render_sidebar
+from sidebar_config import render_sidebar, render_report_export_section
 from ticket_utils import (
     load_tickets,
     save_tickets,
@@ -18,6 +19,12 @@ from ticket_utils import (
     DEFAULT_ASSIGNEES,
     STATUS_COLOR_MAP,
     PRIORITY_COLOR_MAP
+)
+from report_utils import (
+    create_pdf_report,
+    create_excel_report,
+    convert_figure_to_image,
+    get_available_items
 )
 
 st.set_page_config(
@@ -37,6 +44,17 @@ if "selected_ticket_id" not in st.session_state:
 
 def render_ticket_list():
     st.title("🎫 工单管理")
+    
+    report_config = render_report_export_section("tickets")
+    
+    if "show_report_preview_tickets" not in st.session_state:
+        st.session_state.show_report_preview_tickets = False
+    
+    col_preview, col_export_pdf, col_export_excel = st.columns([1, 1, 1])
+    with col_preview:
+        if st.button("👁️ 报告预览", use_container_width=True, type="secondary", key="ticket_preview_btn"):
+            st.session_state.show_report_preview_tickets = not st.session_state.show_report_preview_tickets
+    
     st.markdown("---")
 
     all_tickets = load_tickets()
@@ -158,6 +176,151 @@ def render_ticket_list():
             else:
                 st.session_state[f"confirm_delete_{ticket_ids[selected_idx]}"] = True
                 st.warning("⚠️ 再次点击删除按钮确认删除此工单")
+    
+    key_metrics = [
+        {"label": "总工单数", "value": all_stats["total"], "delta": "全部工单"},
+        {"label": "待处理", "value": stats["pending"], "delta": "待处理工单数"},
+        {"label": "处理中", "value": stats["processing"], "delta": "处理中工单数"},
+        {"label": "已解决", "value": stats["resolved"], "delta": "已解决工单数"},
+        {"label": "已关闭", "value": stats["closed"], "delta": "已关闭工单数"},
+        {"label": "逾期工单", "value": stats["overdue"], "delta": "逾期工单数"}
+    ]
+    
+    chart_images = {}
+    fig_status = None
+    fig_priority = None
+    
+    if report_config["charts"]:
+        if "ticket_status" in report_config["charts"]:
+            status_labels = TICKET_STATUSES
+            status_values = [stats["pending"], stats["processing"], stats["resolved"], stats["closed"]]
+            
+            fig_status = go.Figure(data=[go.Pie(
+                labels=status_labels,
+                values=status_values,
+                hole=0.4,
+                marker=dict(
+                    colors=[STATUS_COLOR_MAP[s] for s in status_labels]
+                ),
+                textinfo='label+percent',
+                hoverinfo='label+value+percent'
+            )])
+            fig_status.update_layout(
+                title="工单状态分布",
+                height=400,
+                margin=dict(t=50, b=50, l=50, r=50)
+            )
+            chart_images["ticket_status"] = convert_figure_to_image(fig_status)
+        
+        if "ticket_priority" in report_config["charts"]:
+            priority_labels = TICKET_PRIORITIES
+            priority_counts = {}
+            for p in priority_labels:
+                priority_counts[p] = len([t for t in filtered_tickets if t["priority"] == p])
+            priority_values = [priority_counts[p] for p in priority_labels]
+            
+            fig_priority = go.Figure()
+            fig_priority.add_trace(go.Bar(
+                x=priority_labels,
+                y=priority_values,
+                marker_color=[PRIORITY_COLOR_MAP[p] for p in priority_labels],
+                text=priority_values,
+                textposition='auto'
+            ))
+            fig_priority.update_layout(
+                title="工单优先级分布",
+                height=400,
+                margin=dict(t=50, b=50, l=50, r=50),
+                xaxis_title="优先级",
+                yaxis_title="工单数量",
+                showlegend=False)
+            chart_images["ticket_priority"] = convert_figure_to_image(fig_priority)
+    
+    df_ticket_summary = pd.DataFrame({
+        '指标': ['总工单数', '待处理', '处理中', '已解决', '已关闭', '逾期工单'],
+        '数量': [all_stats["total"], stats["pending"], stats["processing"], stats["resolved"], stats["closed"], stats["overdue"]}
+    })
+    
+    data_frames = {}
+    if report_config["tables"]:
+        if "ticket_summary" in report_config["tables"]:
+            data_frames["ticket_summary"] = df_ticket_summary
+        if "ticket_detail" in report_config["tables"]:
+            data_frames["ticket_detail"] = df
+    
+    if st.session_state.show_report_preview_tickets:
+        st.markdown("---")
+        st.subheader("📄 报告预览")
+        
+        with st.container():
+            col_pdf, col_excel = st.columns(2)
+            with col_pdf:
+                if st.button("📥 导出 PDF", use_container_width=True, type="primary", key="ticket_pdf_btn"):
+                    pdf_buffer = create_pdf_report(
+                        report_title=report_config["title"],
+                        report_date=report_config["date"],
+                        report_notes=report_config["notes"],
+                        page_type="tickets",
+                        selected_charts=report_config["charts"],
+                        selected_tables=report_config["tables"],
+                        chart_images=chart_images,
+                        data_frames=data_frames,
+                        key_metrics=key_metrics)
+                    st.download_button(
+                        label="⬇️ 下载 PDF 报告",
+                        data=pdf_buffer,
+                        file_name=f"{report_config['title']}_{report_config['date']}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        type="primary",
+                        key="ticket_pdf_download")
+            
+            with col_excel:
+                if st.button("📊 导出 Excel", use_container_width=True, type="primary", key="ticket_excel_btn"):
+                    excel_buffer = create_excel_report(
+                        report_title=report_config["title"],
+                        report_date=report_config["date"],
+                        report_notes=report_config["notes"],
+                        page_type="tickets",
+                        selected_charts=report_config["charts"],
+                        selected_tables=report_config["tables"],
+                        chart_images=chart_images,
+                        data_frames=data_frames,
+                        key_metrics=key_metrics)
+                    st.download_button(
+                        label="⬇️ 下载 Excel 报告",
+                        data=excel_buffer,
+                        file_name=f"{report_config['title']}_{report_config['date']}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        type="primary",
+                        key="ticket_excel_download")
+            
+            st.markdown("---")
+            st.markdown("### 报告基本信息")
+            st.markdown(f"- **报告标题**: {report_config['title']}")
+            st.markdown(f"- **报告日期**: {report_config['date']}")
+            if report_config["notes"]:
+                st.markdown(f"- **备注信息**: {report_config['notes']}")
+            
+            st.markdown("---")
+            st.markdown("### 关键指标摘要")
+            for metric in key_metrics:
+                st.markdown(f"- **{metric['label']}**: {metric['value']}")
+            
+            if report_config["charts"]:
+                st.markdown("---")
+                st.markdown("### 选中的图表")
+                chart_names, _ = get_available_items("tickets")
+                for c in report_config["charts"]:
+                    st.markdown(f"- ✅ {chart_names.get(c, c)}")
+            
+            if report_config["tables"]:
+                st.markdown("---")
+                st.markdown("### 选中的数据表格")
+                _, table_names = get_available_items("tickets")
+                for t in report_config["tables"]:
+                    st.markdown(f"- ✅ {table_names.get(t, t)}")
 
 
 def render_ticket_detail():

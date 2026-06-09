@@ -9,13 +9,19 @@ from data_utils import (
     filter_by_date,
     filter_by_feedback_type
 )
-from sidebar_config import SIDEBAR_CONFIG, render_sidebar
+from sidebar_config import SIDEBAR_CONFIG, render_sidebar, render_report_export_section
 from ticket_utils import (
     create_ticket_from_feedback,
     is_feedback_converted,
     get_ticket_by_feedback,
     TICKET_PRIORITIES,
     DEFAULT_ASSIGNEES
+)
+from report_utils import (
+    create_pdf_report,
+    create_excel_report,
+    convert_figure_to_image,
+    get_available_items
 )
 
 st.set_page_config(
@@ -38,11 +44,28 @@ if filters.get("feedback_type"):
     feedback_df = filter_by_feedback_type(feedback_df, "反馈类型", filters["feedback_type"])
 
 st.title("📊 用户反馈分析面板")
+
+report_config = render_report_export_section("feedback")
+
+if "show_report_preview" not in st.session_state:
+    st.session_state.show_report_preview = False
+
+col_preview, col_export_pdf, col_export_excel = st.columns([1, 1, 1])
+with col_preview:
+    if st.button("👁️ 报告预览", use_container_width=True, type="secondary"):
+        st.session_state.show_report_preview = not st.session_state.show_report_preview
+
 st.markdown("---")
 
 type_counts = feedback_df["反馈类型"].value_counts().reindex(feedback_types).fillna(0).astype(int).tolist()
 total_count = len(feedback_df)
 pending_count = int(total_count * 0.21)
+
+key_metrics = [
+    {"label": "总反馈数", "value": total_count, "delta": "+12%"},
+    {"label": "待处理", "value": pending_count, "delta": "-5%"},
+    {"label": "平均响应时间", "value": "2.3 小时", "delta": "-0.5 小时"}
+]
 
 col1, col2, col3 = st.columns(3)
 
@@ -167,7 +190,7 @@ st.markdown("---")
 st.subheader("📋 反馈类型详细数据")
 
 sum_counts = sum(type_counts) if sum(type_counts) > 0 else 1
-df = pd.DataFrame({
+df_summary = pd.DataFrame({
     '反馈类型': feedback_types,
     '数量': type_counts,
     '占比': [f"{c/sum_counts*100:.1f}%" for c in type_counts],
@@ -175,10 +198,104 @@ df = pd.DataFrame({
 })
 
 st.dataframe(
-    df,
+    df_summary,
     use_container_width=True,
     hide_index=True
 )
+
+chart_images = {}
+if report_config["charts"]:
+    if "type_distribution" in report_config["charts"]:
+        chart_images["type_distribution"] = convert_figure_to_image(fig_donut)
+    if "daily_trend" in report_config["charts"]:
+        chart_images["daily_trend"] = convert_figure_to_image(fig_line)
+    if "satisfaction" in report_config["charts"]:
+        chart_images["satisfaction"] = convert_figure_to_image(fig_bar)
+
+data_frames = {}
+if report_config["tables"]:
+    if "type_summary" in report_config["tables"]:
+        data_frames["type_summary"] = df_summary
+    if "feedback_detail" in report_config["tables"]:
+        display_detail = feedback_df.copy()
+        display_detail['日期'] = pd.to_datetime(display_detail['日期']).dt.strftime('%Y-%m-%d')
+        data_frames["feedback_detail"] = display_detail[['反馈ID', '日期', '反馈类型', '反馈内容']]
+
+if st.session_state.show_report_preview:
+    st.markdown("---")
+    st.subheader("📄 报告预览")
+    
+    with st.container():
+        col_pdf, col_excel = st.columns(2)
+        with col_pdf:
+            if st.button("📥 导出 PDF", use_container_width=True, type="primary"):
+                pdf_buffer = create_pdf_report(
+                    report_title=report_config["title"],
+                    report_date=report_config["date"],
+                    report_notes=report_config["notes"],
+                    page_type="feedback",
+                    selected_charts=report_config["charts"],
+                    selected_tables=report_config["tables"],
+                    chart_images=chart_images,
+                    data_frames=data_frames,
+                    key_metrics=key_metrics
+                )
+                st.download_button(
+                    label="⬇️ 下载 PDF 报告",
+                    data=pdf_buffer,
+                    file_name=f"{report_config['title']}_{report_config['date']}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary"
+                )
+        
+        with col_excel:
+            if st.button("📊 导出 Excel", use_container_width=True, type="primary"):
+                excel_buffer = create_excel_report(
+                    report_title=report_config["title"],
+                    report_date=report_config["date"],
+                    report_notes=report_config["notes"],
+                    page_type="feedback",
+                    selected_charts=report_config["charts"],
+                    selected_tables=report_config["tables"],
+                    chart_images=chart_images,
+                    data_frames=data_frames,
+                    key_metrics=key_metrics
+                )
+                st.download_button(
+                    label="⬇️ 下载 Excel 报告",
+                    data=excel_buffer,
+                    file_name=f"{report_config['title']}_{report_config['date']}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    type="primary"
+                )
+        
+        st.markdown("---")
+        st.markdown("### 报告基本信息")
+        st.markdown(f"- **报告标题**: {report_config['title']}")
+        st.markdown(f"- **报告日期**: {report_config['date']}")
+        if report_config["notes"]:
+            st.markdown(f"- **备注信息**: {report_config['notes']}")
+        
+        st.markdown("---")
+        st.markdown("### 关键指标摘要")
+        for metric in key_metrics:
+            st.markdown(f"- **{metric['label']}**: {metric['value']} ({metric['delta']})")
+        
+        if report_config["charts"]:
+            st.markdown("---")
+            st.markdown("### 选中的图表")
+            chart_names, _ = get_available_items("feedback")
+            for c in report_config["charts"]:
+                st.markdown(f"- ✅ {chart_names.get(c, c)}")
+        
+        if report_config["tables"]:
+            st.markdown("---")
+            st.markdown("### 选中的数据表格")
+            _, table_names = get_available_items("feedback")
+            for t in report_config["tables"]:
+                st.markdown(f"- ✅ {table_names.get(t, t)}")
 
 st.markdown("---")
 st.subheader("📑 详细反馈列表")
