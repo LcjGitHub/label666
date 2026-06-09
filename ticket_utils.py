@@ -5,6 +5,7 @@ import shutil
 from datetime import datetime, timedelta
 import pandas as pd
 
+
 TICKETS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tickets.json")
 ATTACHMENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "attachments")
 
@@ -61,7 +62,6 @@ def save_attachment(file_obj, original_filename, ticket_id):
         "attachment_id": str(uuid.uuid4())[:8],
         "original_name": original_filename,
         "stored_name": safe_name,
-        "file_path": file_path,
         "file_size": round(file_size_mb, 2),
         "file_type": ext.lstrip(".").upper(),
         "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -225,6 +225,10 @@ def delete_ticket(ticket_id):
     tickets = load_tickets()
     tickets = [t for t in tickets if t["ticket_id"] != ticket_id]
     save_tickets(tickets)
+
+    ticket_dir = os.path.join(ATTACHMENTS_DIR, ticket_id)
+    if os.path.exists(ticket_dir):
+        shutil.rmtree(ticket_dir)
 
 
 def add_ticket_note(ticket_id, note):

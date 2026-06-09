@@ -449,11 +449,11 @@ for idx, row in display_df.iterrows():
                     key=f"uploader_{fb_id}"
                 )
                 
+                valid_files = []
                 if uploaded_files:
                     if len(uploaded_files) > MAX_ATTACHMENTS_PER_TICKET:
                         st.error(f"❌ 最多只能上传 {MAX_ATTACHMENTS_PER_TICKET} 个附件，当前已选择 {len(uploaded_files)} 个")
                     else:
-                        valid_files = []
                         for uf in uploaded_files:
                             file_size_mb = len(uf.getvalue()) / (1024 * 1024)
                             if file_size_mb > MAX_FILE_SIZE_MB:
@@ -476,19 +476,11 @@ for idx, row in display_df.iterrows():
                 
                 if submitted:
                     attachments = []
-                    if uploaded_files:
-                        if len(uploaded_files) > MAX_ATTACHMENTS_PER_TICKET:
-                            st.error(f"❌ 最多只能上传 {MAX_ATTACHMENTS_PER_TICKET} 个附件")
-                            st.stop()
-                        for uf in uploaded_files:
-                            file_size_mb = len(uf.getvalue()) / (1024 * 1024)
-                            if file_size_mb > MAX_FILE_SIZE_MB:
-                                st.error(f"❌ 文件 {uf.name} 超过大小限制")
-                                st.stop()
-                            attachments.append({
-                                "file_obj": uf,
-                                "original_name": uf.name
-                            })
+                    for vf in valid_files:
+                        attachments.append({
+                            "file_obj": vf,
+                            "original_name": vf.name
+                        })
                     
                     try:
                         ticket = create_ticket_from_feedback(
@@ -503,6 +495,7 @@ for idx, row in display_df.iterrows():
                         )
                         st.success(f"工单 {ticket['ticket_id']} 创建成功！前往 [工单管理](/工单管理) 查看")
                         st.session_state[f"show_form_{fb_id}"] = False
+                        st.rerun()
                     except ValueError as e:
                         st.error(f"❌ 附件上传失败: {str(e)}")
         
