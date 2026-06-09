@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import jieba
+import uuid
 from wordcloud import WordCloud
 from collections import Counter
 
@@ -131,7 +132,10 @@ def generate_mock_feedback_data():
         scores.append(score)
         types.append(np.random.choice(feedback_types_pool))
     
+    feedback_ids = [f"FB-{uuid.uuid4().hex[:8].upper()}" for _ in feedback_texts]
+    
     df = pd.DataFrame({
+        '反馈ID': feedback_ids,
         '日期': dates,
         '反馈内容': feedback_texts,
         '反馈类型': types,

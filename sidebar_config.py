@@ -52,6 +52,51 @@ SIDEBAR_CONFIG = {
             ]
         },
         {
+            "id": "ticket_filters",
+            "title": "🎫 工单筛选",
+            "expanded": True,
+            "page_only": "tickets",
+            "controls": [
+                {
+                    "id": "ticket_search",
+                    "type": "text_input",
+                    "label": "搜索工单",
+                    "help": "输入关键词搜索工单编号、标题、内容或备注"
+                },
+                {
+                    "id": "ticket_status",
+                    "type": "multiselect",
+                    "label": "工单状态",
+                    "help": "按状态筛选工单",
+                    "options": ["待处理", "处理中", "已解决", "已关闭"],
+                    "default": "all"
+                },
+                {
+                    "id": "ticket_priority",
+                    "type": "multiselect",
+                    "label": "优先级",
+                    "help": "按优先级筛选工单",
+                    "options": ["低", "中", "高", "紧急"],
+                    "default": "all"
+                },
+                {
+                    "id": "ticket_assignee",
+                    "type": "multiselect",
+                    "label": "处理人",
+                    "help": "按处理人筛选工单",
+                    "options": ["张三", "李四", "王五", "赵六", "未分配"],
+                    "default": "all"
+                },
+                {
+                    "id": "ticket_date_range",
+                    "type": "date_input",
+                    "label": "创建日期范围",
+                    "help": "按工单创建日期筛选",
+                    "data_source": "date_range"
+                }
+            ]
+        },
+        {
             "id": "tips",
             "title": None,
             "expanded": True,
@@ -69,6 +114,12 @@ SIDEBAR_CONFIG = {
 def get_date_range_default():
     dates = pd.date_range(start="2024-01-01", periods=30, freq="D")
     return [dates[0].date(), dates[-1].date()]
+
+def get_ticket_date_range_default():
+    today = pd.Timestamp.now().date()
+    start = today - pd.Timedelta(days=90)
+    end = today + pd.Timedelta(days=90)
+    return [start, end]
 
 def render_sidebar(current_page=None):
     filters = {}
@@ -90,7 +141,10 @@ def render_sidebar(current_page=None):
             
             if control_type == "date_input":
                 if control["data_source"] == "date_range":
-                    default_value = get_date_range_default()
+                    if control_id == "ticket_date_range":
+                        default_value = get_ticket_date_range_default()
+                    else:
+                        default_value = get_date_range_default()
                 filters[control_id] = st.date_input(
                     control["label"],
                     value=default_value,
@@ -104,6 +158,12 @@ def render_sidebar(current_page=None):
                     control["label"],
                     options=options,
                     default=default,
+                    help=control.get("help")
+                )
+            
+            elif control_type == "text_input":
+                filters[control_id] = st.text_input(
+                    control["label"],
                     help=control.get("help")
                 )
         

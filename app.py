@@ -2,6 +2,7 @@ import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+from datetime import datetime, timedelta
 from data_utils import (
     generate_mock_feedback_data,
     generate_feedback_summary_data,
@@ -9,6 +10,13 @@ from data_utils import (
     filter_by_feedback_type
 )
 from sidebar_config import SIDEBAR_CONFIG, render_sidebar
+from ticket_utils import (
+    create_ticket_from_feedback,
+    is_feedback_converted,
+    get_ticket_by_feedback,
+    TICKET_PRIORITIES,
+    DEFAULT_ASSIGNEES
+)
 
 st.set_page_config(
     page_title="用户反馈分析",
@@ -176,16 +184,81 @@ st.markdown("---")
 st.subheader("📑 详细反馈列表")
 
 display_df = feedback_df.copy()
-display_df['日期'] = display_df['日期'].dt.strftime('%Y-%m-%d')
+display_df['日期'] = pd.to_datetime(display_df['日期']).dt.strftime('%Y-%m-%d')
 
-st.dataframe(
-    display_df[['日期', '反馈类型', '反馈内容']],
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "反馈内容": st.column_config.TextColumn(
-            "反馈内容",
-            width="large"
-        )
-    }
-)
+for idx, row in display_df.iterrows():
+    fb_id = row['反馈ID']
+    converted = is_feedback_converted(fb_id)
+    ticket = get_ticket_by_feedback(fb_id) if converted else None
+    
+    with st.container():
+        col_info, col_action = st.columns([4, 1])
+        
+        with col_info:
+            st.markdown(f"**{row['反馈类型']}** · {row['日期']} · `{fb_id}`")
+            st.write(row['反馈内容'])
+            if converted and ticket:
+                st.success(f"✅ 已转为工单: [{ticket['ticket_id']}](/工单管理) - 状态: **{ticket['status']}**")
+        
+        with col_action:
+            if not converted:
+                if st.button("🎫 转为工单", key=f"convert_{fb_id}", use_container_width=True):
+                    st.session_state[f"show_form_{fb_id}"] = True
+            else:
+                if st.button("📋 查看工单", key=f"view_{fb_id}", use_container_width=True):
+                    st.session_state[f"show_detail_{fb_id}"] = True
+        
+        if st.session_state.get(f"show_form_{fb_id}", False):
+            with st.form(key=f"ticket_form_{fb_id}"):
+                st.markdown(f"**创建工单 - {fb_id}**")
+                st.info(f"反馈内容: {row['反馈内容']}")
+                
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    assignee = st.selectbox("处理人", DEFAULT_ASSIGNEES, index=len(DEFAULT_ASSIGNEES)-1)
+                    priority = st.selectbox("优先级", TICKET_PRIORITIES, index=1)
+                with col_b:
+                    default_due = (datetime.now() + timedelta(days=7)).date()
+                    due_date = st.date_input("截止日期", value=default_due)
+                    notes = st.text_area("备注信息", height=80)
+                
+                col_submit, col_cancel = st.columns(2)
+                with col_submit:
+                    submitted = st.form_submit_button("✅ 创建工单", use_container_width=True)
+                with col_cancel:
+                    if st.form_submit_button("❌ 取消", use_container_width=True):
+                        st.session_state[f"show_form_{fb_id}"] = False
+                        st.rerun()
+                
+                if submitted:
+                    ticket = create_ticket_from_feedback(
+                        feedback_id=fb_id,
+                        feedback_content=row['反馈内容'],
+                        feedback_type=row['反馈类型'],
+                        assignee=assignee,
+                        priority=priority,
+                        due_date=due_date.strftime("%Y-%m-%d"),
+                        notes=notes
+                    )
+                    st.success(f"工单 {ticket['ticket_id']} 创建成功！前往 [工单管理](/工单管理) 查看")
+                    st.session_state[f"show_form_{fb_id}"] = False
+        
+        if st.session_state.get(f"show_detail_{fb_id}", False) and ticket:
+            with st.expander(f"工单详情 - {ticket['ticket_id']}", expanded=True):
+                col_d1, col_d2 = st.columns(2)
+                with col_d1:
+                    st.markdown(f"**状态**: :blue[{ticket['status']}]")
+                    st.markdown(f"**优先级**: :orange[{ticket['priority']}]")
+                    st.markdown(f"**创建时间**: {ticket['created_at']}")
+                with col_d2:
+                    st.markdown(f"**处理人**: {ticket['assignee']}")
+                    st.markdown(f"**截止日期**: {ticket['due_date']}")
+                    st.markdown(f"**更新时间**: {ticket['updated_at']}")
+                if ticket.get('notes'):
+                    st.markdown("**备注信息**:")
+                    st.info(ticket['notes'])
+                if st.button("关闭详情", key=f"close_detail_{fb_id}"):
+                    st.session_state[f"show_detail_{fb_id}"] = False
+                    st.rerun()
+        
+        st.markdown("---")
