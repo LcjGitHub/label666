@@ -2,6 +2,13 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+from auth_utils import (
+    is_logged_in,
+    render_login_page,
+    render_user_info_in_sidebar,
+    has_permission,
+    require_permission
+)
 from sidebar_config import render_sidebar, render_report_export_section
 from ticket_utils import (
     load_tickets,
@@ -33,7 +40,12 @@ st.set_page_config(
     layout="wide"
 )
 
+if not is_logged_in():
+    render_login_page()
+    st.stop()
+
 with st.sidebar:
+    render_user_info_in_sidebar()
     filters = render_sidebar(current_page="tickets")
 
 if "current_view" not in st.session_state:
@@ -45,15 +57,27 @@ if "selected_ticket_id" not in st.session_state:
 def render_ticket_list():
     st.title("🎫 工单管理")
     
-    report_config = render_report_export_section("tickets")
+    if has_permission("edit_config") or has_permission("export_data"):
+        report_config = render_report_export_section("tickets")
+    else:
+        report_config = {
+            "title": "工单管理报告",
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "notes": "",
+            "charts": [],
+            "tables": []
+        }
     
     if "show_report_preview_tickets" not in st.session_state:
         st.session_state.show_report_preview_tickets = False
     
-    col_preview, col_export_pdf, col_export_excel = st.columns([1, 1, 1])
-    with col_preview:
-        if st.button("👁️ 报告预览", use_container_width=True, type="secondary", key="ticket_preview_btn"):
-            st.session_state.show_report_preview_tickets = not st.session_state.show_report_preview_tickets
+    if has_permission("export_data"):
+        col_preview, col_export_pdf, col_export_excel = st.columns([1, 1, 1])
+        with col_preview:
+            if st.button("👁️ 报告预览", use_container_width=True, type="secondary", key="ticket_preview_btn"):
+                st.session_state.show_report_preview_tickets = not st.session_state.show_report_preview_tickets
+    else:
+        st.info("💡 提示：如需导出报告功能，请联系管理员开通「导出数据」权限。")
     
     st.markdown("---")
 
@@ -154,6 +178,7 @@ def render_ticket_list():
 
     ticket_options = [f"{t['ticket_id']} - {t['title']}" for t in filtered_tickets]
     ticket_ids = [t["ticket_id"] for t in filtered_tickets]
+    can_manage_tickets = has_permission("manage_tickets")
 
     selected_idx = st.selectbox(
         "选择工单",
@@ -168,14 +193,17 @@ def render_ticket_list():
             st.session_state.current_view = "detail"
             st.rerun()
     with col_delete:
-        if st.button("🗑️ 删除工单", use_container_width=True):
-            if st.session_state.get(f"confirm_delete_{ticket_ids[selected_idx]}", False):
-                delete_ticket(ticket_ids[selected_idx])
-                st.success(f"工单 {ticket_ids[selected_idx]} 已删除")
-                st.rerun()
-            else:
-                st.session_state[f"confirm_delete_{ticket_ids[selected_idx]}"] = True
-                st.warning("⚠️ 再次点击删除按钮确认删除此工单")
+        if can_manage_tickets:
+            if st.button("🗑️ 删除工单", use_container_width=True):
+                if st.session_state.get(f"confirm_delete_{ticket_ids[selected_idx]}", False):
+                    delete_ticket(ticket_ids[selected_idx])
+                    st.success(f"工单 {ticket_ids[selected_idx]} 已删除")
+                    st.rerun()
+                else:
+                    st.session_state[f"confirm_delete_{ticket_ids[selected_idx]}"] = True
+                    st.warning("⚠️ 再次点击删除按钮确认删除此工单")
+        else:
+            st.button("🔒 删除工单", use_container_width=True, disabled=True)
     
     key_metrics = [
         {"label": "总工单数", "value": all_stats["total"], "delta": "全部工单"},
@@ -274,7 +302,7 @@ def render_ticket_list():
             key_metrics=key_metrics
         )
     
-    if st.session_state.show_report_preview_tickets:
+    if has_permission("export_data") and st.session_state.show_report_preview_tickets:
         st.markdown("---")
         st.subheader("📄 报告预览")
         
@@ -395,50 +423,58 @@ def render_ticket_detail():
 
     with col_info2:
         st.subheader("⚙️ 工单属性")
+        can_manage_tickets = has_permission("manage_tickets")
 
-        with st.form("update_ticket_form"):
-            new_status = st.selectbox(
-                "状态",
-                TICKET_STATUSES,
-                index=TICKET_STATUSES.index(ticket['status'])
-            )
-
-            available_transitions = get_available_status_transitions(ticket['status'])
-            if available_transitions:
-                st.caption(f"可流转状态: {', '.join(available_transitions)}")
-            else:
-                st.caption("当前状态不可再流转")
-
-            new_assignee = st.selectbox(
-                "处理人",
-                DEFAULT_ASSIGNEES,
-                index=DEFAULT_ASSIGNEES.index(ticket['assignee']) if ticket['assignee'] in DEFAULT_ASSIGNEES else len(DEFAULT_ASSIGNEES) - 1
-            )
-
-            new_priority = st.selectbox(
-                "优先级",
-                TICKET_PRIORITIES,
-                index=TICKET_PRIORITIES.index(ticket['priority'])
-            )
-
-            try:
-                current_due = datetime.strptime(ticket['due_date'], "%Y-%m-%d").date()
-            except ValueError:
-                current_due = (datetime.now() + timedelta(days=7)).date()
-            new_due = st.date_input("截止日期", value=current_due)
-
-            submitted = st.form_submit_button("💾 更新工单", type="primary", use_container_width=True)
-
-            if submitted:
-                update_ticket(
-                    ticket_id,
-                    status=new_status,
-                    assignee=new_assignee,
-                    priority=new_priority,
-                    due_date=new_due.strftime("%Y-%m-%d")
+        if can_manage_tickets:
+            with st.form("update_ticket_form"):
+                new_status = st.selectbox(
+                    "状态",
+                    TICKET_STATUSES,
+                    index=TICKET_STATUSES.index(ticket['status'])
                 )
-                st.success("✅ 工单信息已更新！")
-                st.rerun()
+
+                available_transitions = get_available_status_transitions(ticket['status'])
+                if available_transitions:
+                    st.caption(f"可流转状态: {', '.join(available_transitions)}")
+                else:
+                    st.caption("当前状态不可再流转")
+
+                new_assignee = st.selectbox(
+                    "处理人",
+                    DEFAULT_ASSIGNEES,
+                    index=DEFAULT_ASSIGNEES.index(ticket['assignee']) if ticket['assignee'] in DEFAULT_ASSIGNEES else len(DEFAULT_ASSIGNEES) - 1
+                )
+
+                new_priority = st.selectbox(
+                    "优先级",
+                    TICKET_PRIORITIES,
+                    index=TICKET_PRIORITIES.index(ticket['priority'])
+                )
+
+                try:
+                    current_due = datetime.strptime(ticket['due_date'], "%Y-%m-%d").date()
+                except ValueError:
+                    current_due = (datetime.now() + timedelta(days=7)).date()
+                new_due = st.date_input("截止日期", value=current_due)
+
+                submitted = st.form_submit_button("💾 更新工单", type="primary", use_container_width=True)
+
+                if submitted:
+                    update_ticket(
+                        ticket_id,
+                        status=new_status,
+                        assignee=new_assignee,
+                        priority=new_priority,
+                        due_date=new_due.strftime("%Y-%m-%d")
+                    )
+                    st.success("✅ 工单信息已更新！")
+                    st.rerun()
+        else:
+            st.info("🔒 您没有「管理工单」权限，无法修改工单属性。")
+            st.markdown(f"**状态**: {ticket['status']}")
+            st.markdown(f"**处理人**: {ticket['assignee']}")
+            st.markdown(f"**优先级**: {ticket['priority']}")
+            st.markdown(f"**截止日期**: {ticket['due_date']}")
 
     st.markdown("---")
     col_status2, col_dates = st.columns(2)
@@ -459,13 +495,16 @@ def render_ticket_detail():
     else:
         st.info("暂无备注信息")
 
-    with st.form("add_note_form"):
-        new_note = st.text_area("添加新备注", height=100, placeholder="在这里输入备注信息...")
-        note_submitted = st.form_submit_button("✏️ 添加备注", use_container_width=True)
-        if note_submitted and new_note.strip():
-            add_ticket_note(ticket_id, new_note.strip())
-            st.success("✅ 备注已添加！")
-            st.rerun()
+    if can_manage_tickets:
+        with st.form("add_note_form"):
+            new_note = st.text_area("添加新备注", height=100, placeholder="在这里输入备注信息...")
+            note_submitted = st.form_submit_button("✏️ 添加备注", use_container_width=True)
+            if note_submitted and new_note.strip():
+                add_ticket_note(ticket_id, new_note.strip())
+                st.success("✅ 备注已添加！")
+                st.rerun()
+    else:
+        st.info("🔒 您没有「管理工单」权限，无法添加备注。")
 
     st.markdown("---")
     st.subheader("📜 操作历史")

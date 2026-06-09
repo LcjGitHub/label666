@@ -2,6 +2,13 @@ import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+from datetime import datetime
+from auth_utils import (
+    is_logged_in,
+    render_login_page,
+    render_user_info_in_sidebar,
+    has_permission
+)
 from data_utils import (
     generate_mock_feedback_data,
     filter_by_date,
@@ -25,9 +32,14 @@ st.set_page_config(
     layout="wide"
 )
 
+if not is_logged_in():
+    render_login_page()
+    st.stop()
+
 feedback_df = generate_mock_feedback_data()
 
 with st.sidebar:
+    render_user_info_in_sidebar()
     filters = render_sidebar(current_page="sentiment")
 
 if filters.get("date_range") and len(filters["date_range"]) == 2:
@@ -41,15 +53,27 @@ if filters.get("sentiment_type"):
 
 st.title("💭 情感分析面板")
 
-report_config = render_report_export_section("sentiment")
+if has_permission("edit_config") or has_permission("export_data"):
+    report_config = render_report_export_section("sentiment")
+else:
+    report_config = {
+        "title": "情感分析报告",
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "notes": "",
+        "charts": [],
+        "tables": []
+    }
 
 if "show_report_preview_sentiment" not in st.session_state:
     st.session_state.show_report_preview_sentiment = False
 
-col_preview, col_export_pdf, col_export_excel = st.columns([1, 1, 1])
-with col_preview:
-    if st.button("👁️ 报告预览", use_container_width=True, type="secondary"):
-        st.session_state.show_report_preview_sentiment = not st.session_state.show_report_preview_sentiment
+if has_permission("export_data"):
+    col_preview, col_export_pdf, col_export_excel = st.columns([1, 1, 1])
+    with col_preview:
+        if st.button("👁️ 报告预览", use_container_width=True, type="secondary"):
+            st.session_state.show_report_preview_sentiment = not st.session_state.show_report_preview_sentiment
+else:
+    st.info("💡 提示：如需导出报告功能，请联系管理员开通「导出数据」权限。")
 
 st.markdown("---")
 
@@ -290,7 +314,7 @@ if report_config["charts"] or report_config["tables"]:
         key_metrics=key_metrics
     )
 
-if st.session_state.show_report_preview_sentiment:
+if has_permission("export_data") and st.session_state.show_report_preview_sentiment:
     st.markdown("---")
     st.subheader("📄 报告预览")
     

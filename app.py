@@ -3,6 +3,13 @@ import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from auth_utils import (
+    is_logged_in,
+    render_login_page,
+    render_user_info_in_sidebar,
+    has_permission,
+    require_permission
+)
 from data_utils import (
     generate_mock_feedback_data,
     generate_feedback_summary_data,
@@ -30,10 +37,15 @@ st.set_page_config(
     layout="wide"
 )
 
+if not is_logged_in():
+    render_login_page()
+    st.stop()
+
 feedback_df = generate_mock_feedback_data()
 feedback_types, counts, daily_df, satisfaction, satisfaction_counts = generate_feedback_summary_data()
 
 with st.sidebar:
+    render_user_info_in_sidebar()
     filters = render_sidebar(current_page="feedback")
 
 if filters.get("date_range") and len(filters["date_range"]) == 2:
@@ -45,15 +57,27 @@ if filters.get("feedback_type"):
 
 st.title("📊 用户反馈分析面板")
 
-report_config = render_report_export_section("feedback")
+if has_permission("edit_config") or has_permission("export_data"):
+    report_config = render_report_export_section("feedback")
+else:
+    report_config = {
+        "title": "用户反馈分析报告",
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "notes": "",
+        "charts": [],
+        "tables": []
+    }
 
 if "show_report_preview" not in st.session_state:
     st.session_state.show_report_preview = False
 
-col_preview, col_export_pdf, col_export_excel = st.columns([1, 1, 1])
-with col_preview:
-    if st.button("👁️ 报告预览", use_container_width=True, type="secondary"):
-        st.session_state.show_report_preview = not st.session_state.show_report_preview
+if has_permission("export_data"):
+    col_preview, col_export_pdf, col_export_excel = st.columns([1, 1, 1])
+    with col_preview:
+        if st.button("👁️ 报告预览", use_container_width=True, type="secondary"):
+            st.session_state.show_report_preview = not st.session_state.show_report_preview
+else:
+    st.info("💡 提示：如需导出报告功能，请联系管理员开通「导出数据」权限。")
 
 st.markdown("---")
 
@@ -247,7 +271,7 @@ if report_config["charts"] or report_config["tables"]:
         key_metrics=key_metrics
     )
 
-if st.session_state.show_report_preview:
+if has_permission("export_data") and st.session_state.show_report_preview:
     st.markdown("---")
     st.subheader("📄 报告预览")
     
@@ -334,6 +358,8 @@ st.subheader("📑 详细反馈列表")
 display_df = feedback_df.copy()
 display_df['日期'] = pd.to_datetime(display_df['日期']).dt.strftime('%Y-%m-%d')
 
+can_manage_tickets = has_permission("manage_tickets")
+
 for idx, row in display_df.iterrows():
     fb_id = row['反馈ID']
     converted = is_feedback_converted(fb_id)
@@ -350,13 +376,16 @@ for idx, row in display_df.iterrows():
         
         with col_action:
             if not converted:
-                if st.button("🎫 转为工单", key=f"convert_{fb_id}", use_container_width=True):
-                    st.session_state[f"show_form_{fb_id}"] = True
+                if can_manage_tickets:
+                    if st.button("🎫 转为工单", key=f"convert_{fb_id}", use_container_width=True):
+                        st.session_state[f"show_form_{fb_id}"] = True
+                else:
+                    st.button("🔒 转为工单", key=f"convert_{fb_id}", use_container_width=True, disabled=True)
             else:
                 if st.button("📋 查看工单", key=f"view_{fb_id}", use_container_width=True):
                     st.session_state[f"show_detail_{fb_id}"] = True
         
-        if st.session_state.get(f"show_form_{fb_id}", False):
+        if can_manage_tickets and st.session_state.get(f"show_form_{fb_id}", False):
             with st.form(key=f"ticket_form_{fb_id}"):
                 st.markdown(f"**创建工单 - {fb_id}**")
                 st.info(f"反馈内容: {row['反馈内容']}")
