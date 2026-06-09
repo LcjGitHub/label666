@@ -7,15 +7,6 @@
         "view_dashboard"
       ]
     },
-    "editor": {
-      "name": "编辑用户",
-      "permissions": [
-        "view_data",
-        "view_dashboard",
-        "edit_config",
-        "manage_tickets"
-      ]
-    },
     "admin": {
       "name": "管理员",
       "permissions": [
@@ -31,28 +22,19 @@
   "users": [
     {
       "username": "admin",
-      "password": "admin123",
+      "password": "sha256:240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9",
       "role": "admin",
       "full_name": "系统管理员",
       "email": "admin@example.com",
       "created_at": "2024-01-01 00:00:00",
-      "last_login": "2026-06-09 12:21:48"
+      "last_login": "2026-06-09 13:28:31"
     },
     {
       "username": "viewer",
-      "password": "viewer123",
+      "password": "sha256:65375049b9e4d7cad6c9ba286fdeb9394b28135a3e84136404cfccfdcc438894",
       "role": "viewer",
       "full_name": "普通用户",
       "email": "viewer@example.com",
-      "created_at": "2024-01-01 00:00:00",
-      "last_login": null
-    },
-    {
-      "username": "editor",
-      "password": "editor123",
-      "role": "editor",
-      "full_name": "编辑用户",
-      "email": "editor@example.com",
       "created_at": "2024-01-01 00:00:00",
       "last_login": null
     }

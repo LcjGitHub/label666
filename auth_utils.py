@@ -1,10 +1,21 @@
 import json
 import os
+import hashlib
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 
 USERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "users.json")
+
+
+def hash_password(password):
+    return "sha256:" + hashlib.sha256(password.encode()).hexdigest()
+
+
+def verify_password(password, stored_hash):
+    if stored_hash.startswith("sha256:"):
+        return stored_hash == hash_password(password)
+    return stored_hash == password
 
 
 def load_users_data():
@@ -52,7 +63,7 @@ def get_user(username):
 
 def authenticate(username, password):
     user = get_user(username)
-    if user and user["password"] == password:
+    if user and verify_password(password, user["password"]):
         return user
     return None
 
@@ -66,8 +77,16 @@ def update_last_login(username):
             break
 
 
+def init_session():
+    if "_auth_initialized" not in st.session_state:
+        if "user" not in st.session_state:
+            st.session_state.user = None
+        st.session_state._auth_initialized = True
+
+
 def is_logged_in():
-    return "user" in st.session_state and st.session_state.user is not None
+    init_session()
+    return st.session_state.user is not None
 
 
 def get_current_user():
@@ -115,8 +134,8 @@ def login(username, password):
 
 
 def logout():
-    if "user" in st.session_state:
-        del st.session_state.user
+    init_session()
+    st.session_state.user = None
     for key in list(st.session_state.keys()):
         if key.startswith("report_") or key.startswith("filter_") or key.startswith("show_"):
             del st.session_state[key]
@@ -128,7 +147,7 @@ def add_user(username, password, role, full_name="", email=""):
     data = load_users_data()
     new_user = {
         "username": username,
-        "password": password,
+        "password": hash_password(password),
         "role": role,
         "full_name": full_name or username,
         "email": email,
@@ -145,7 +164,7 @@ def update_user(username, password=None, role=None, full_name=None, email=None):
     for user in data.get("users", []):
         if user["username"] == username:
             if password is not None:
-                user["password"] = password
+                user["password"] = hash_password(password)
             if role is not None:
                 user["role"] = role
             if full_name is not None:
@@ -199,16 +218,6 @@ def render_login_page():
                         st.rerun()
                     else:
                         st.error("用户名或密码错误，请重试")
-
-        st.markdown("---")
-        with st.expander("💡 测试账号"):
-            st.markdown("""
-            | 角色 | 用户名 | 密码 |
-            |------|--------|------|
-            | 管理员 | admin | admin123 |
-            | 编辑用户 | editor | editor123 |
-            | 普通用户 | viewer | viewer123 |
-            """)
 
 
 def render_user_info_in_sidebar():
@@ -376,7 +385,7 @@ def render_user_management_page():
             "view_data": {"name": "查看数据", "desc": "查看基础数据和报表"},
             "view_dashboard": {"name": "查看仪表盘", "desc": "访问分析仪表盘页面"},
             "edit_config": {"name": "修改配置", "desc": "修改系统配置和报告设置"},
-            "export_data": {"name": "导出数据", "desc": "导出PDF和Excel报告"},
+            "export_data": {"name": "导出数据", "desc": "导出PDF和Excel报告、下载图表"},
             "manage_tickets": {"name": "管理工单", "desc": "创建、编辑、删除工单"},
             "manage_users": {"name": "管理用户", "desc": "添加、编辑、删除用户账户"}
         }

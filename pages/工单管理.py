@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 from auth_utils import (
+    init_session,
     is_logged_in,
     render_login_page,
     render_user_info_in_sidebar,
@@ -40,9 +41,13 @@ st.set_page_config(
     layout="wide"
 )
 
+init_session()
+
 if not is_logged_in():
     render_login_page()
     st.stop()
+
+can_export = has_permission("export_data")
 
 with st.sidebar:
     render_user_info_in_sidebar()
@@ -156,21 +161,28 @@ def render_ticket_list():
 
     styled_df = df.style.map(color_status, subset=["状态"]).map(color_priority, subset=["优先级"])
 
-    st.dataframe(
-        styled_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "工单编号": st.column_config.TextColumn("工单编号", width="medium"),
-            "标题": st.column_config.TextColumn("标题", width="large"),
-            "状态": st.column_config.TextColumn("状态", width="small"),
-            "优先级": st.column_config.TextColumn("优先级", width="small"),
-            "处理人": st.column_config.TextColumn("处理人", width="small"),
-            "创建时间": st.column_config.TextColumn("创建时间", width="medium"),
-            "截止日期": st.column_config.TextColumn("截止日期", width="medium"),
-            "反馈类型": st.column_config.TextColumn("反馈类型", width="small")
-        }
-    )
+    if can_export:
+        st.dataframe(
+            styled_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "工单编号": st.column_config.TextColumn("工单编号", width="medium"),
+                "标题": st.column_config.TextColumn("标题", width="large"),
+                "状态": st.column_config.TextColumn("状态", width="small"),
+                "优先级": st.column_config.TextColumn("优先级", width="small"),
+                "处理人": st.column_config.TextColumn("处理人", width="small"),
+                "创建时间": st.column_config.TextColumn("创建时间", width="medium"),
+                "截止日期": st.column_config.TextColumn("截止日期", width="medium"),
+                "反馈类型": st.column_config.TextColumn("反馈类型", width="small")
+            }
+        )
+    else:
+        st.dataframe(
+            styled_df,
+            use_container_width=True,
+            hide_index=True
+        )
 
     st.markdown("---")
     st.subheader("🔧 工单操作")

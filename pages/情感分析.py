@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from auth_utils import (
+    init_session,
     is_logged_in,
     render_login_page,
     render_user_info_in_sidebar,
@@ -32,9 +33,13 @@ st.set_page_config(
     layout="wide"
 )
 
+init_session()
+
 if not is_logged_in():
     render_login_page()
     st.stop()
+
+can_export = has_permission("export_data")
 
 feedback_df = generate_mock_feedback_data()
 
@@ -160,8 +165,14 @@ with col_chart1:
             x=0.5
         )
     )
+
+    plotly_config = {
+        'displayModeBar': can_export,
+        'displaylogo': False,
+        'modeBarButtonsToRemove': ['sendDataToCloud', 'lasso2d', 'select2d']
+    }
     
-    st.plotly_chart(fig_pie, use_container_width=True)
+    st.plotly_chart(fig_pie, use_container_width=True, config=plotly_config)
 
 with col_chart2:
     st.subheader("📉 情感变化趋势（按周聚合）")
@@ -206,7 +217,7 @@ with col_chart2:
         )
     )
     
-    st.plotly_chart(fig_trend, use_container_width=True)
+    st.plotly_chart(fig_trend, use_container_width=True, config=plotly_config)
 
 st.markdown("---")
 st.subheader("☁️ 反馈关键词词云")
@@ -228,11 +239,14 @@ if word_freq:
         words_df = pd.DataFrame(top_words, columns=['关键词', '出现次数'])
         words_df.index = range(1, len(words_df) + 1)
         
-        st.dataframe(
-            words_df,
-            use_container_width=True,
-            height=400
-        )
+        if can_export:
+            st.dataframe(
+                words_df,
+                use_container_width=True,
+                height=400
+            )
+        else:
+            st.table(words_df)
 else:
     st.warning("暂无足够的文本数据生成词云")
 
@@ -250,17 +264,24 @@ sentiment_emoji = {
 display_df['情感类别'] = display_df['情感类别'].map(sentiment_emoji)
 
 sentiment_display_df = display_df.copy()
-st.dataframe(
-    sentiment_display_df[['日期', '反馈类型', '情感类别', '情感强度', '反馈内容']],
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "反馈内容": st.column_config.TextColumn(
-            "反馈内容",
-            width="large"
-        )
-    }
-)
+if can_export:
+    st.dataframe(
+        sentiment_display_df[['日期', '反馈类型', '情感类别', '情感强度', '反馈内容']],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "反馈内容": st.column_config.TextColumn(
+                "反馈内容",
+                width="large"
+            )
+        }
+    )
+else:
+    st.dataframe(
+        sentiment_display_df[['日期', '反馈类型', '情感类别', '情感强度', '反馈内容']],
+        use_container_width=True,
+        hide_index=True
+    )
 
 chart_images = {}
 if report_config["charts"]:

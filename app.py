@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from auth_utils import (
+    init_session,
     is_logged_in,
     render_login_page,
     render_user_info_in_sidebar,
@@ -37,9 +38,13 @@ st.set_page_config(
     layout="wide"
 )
 
+init_session()
+
 if not is_logged_in():
     render_login_page()
     st.stop()
+
+can_export = has_permission("export_data")
 
 feedback_df = generate_mock_feedback_data()
 feedback_types, counts, daily_df, satisfaction, satisfaction_counts = generate_feedback_summary_data()
@@ -155,7 +160,12 @@ with col_chart1:
         )
     )
     
-    st.plotly_chart(fig_donut, use_container_width=True)
+    plotly_config = {
+        'displayModeBar': can_export,
+        'displaylogo': False,
+        'modeBarButtonsToRemove': ['sendDataToCloud', 'lasso2d', 'select2d']
+    }
+    st.plotly_chart(fig_donut, use_container_width=True, config=plotly_config)
 
 with col_chart2:
     st.subheader("📈 每日反馈趋势")
@@ -179,7 +189,7 @@ with col_chart2:
         hovermode='x unified'
     )
     
-    st.plotly_chart(fig_line, use_container_width=True)
+    st.plotly_chart(fig_line, use_container_width=True, config=plotly_config)
 
 st.markdown("---")
 st.subheader("😊 用户满意度分布")
@@ -208,7 +218,7 @@ fig_bar.update_layout(
     showlegend=False
 )
 
-st.plotly_chart(fig_bar, use_container_width=True)
+st.plotly_chart(fig_bar, use_container_width=True, config=plotly_config)
 
 st.markdown("---")
 st.subheader("📋 反馈类型详细数据")
@@ -221,11 +231,14 @@ df_summary = pd.DataFrame({
     '优先级': ['高', '中', '高', '紧急', '低', '低']
 })
 
-st.dataframe(
-    df_summary,
-    use_container_width=True,
-    hide_index=True
-)
+if can_export:
+    st.dataframe(
+        df_summary,
+        use_container_width=True,
+        hide_index=True
+    )
+else:
+    st.table(df_summary)
 
 chart_images = {}
 if report_config["charts"]:
